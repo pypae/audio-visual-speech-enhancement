@@ -16,7 +16,7 @@ class AudioVisualDataset:
 		entries = []
 
 		for speaker_id in speaker_ids:
-			audio_paths = glob.glob(os.path.join(self._base_path, speaker_id, "audio", "*.wav"))
+			audio_paths = glob.glob(os.path.join(self._base_path, speaker_id, 'audio', '*.wav'))
 
 			for audio_path in audio_paths:
 				entry = AudioVisualEntry(speaker_id, audio_path, AudioVisualDataset.__audio_to_video_path(audio_path))
@@ -32,7 +32,13 @@ class AudioVisualDataset:
 
 	@staticmethod
 	def __audio_to_video_path(audio_path):
-		return glob.glob(os.path.splitext(audio_path.replace("audio", "video"))[0] + ".*")[0]
+		path_names = audio_path.split('/')
+		if path_names[-2] != 'audio':
+			raise Exception('invalid audio-video path conversion')
+
+		path_names[-2] = 'video'
+
+		return glob.glob(os.path.splitext('/'.join(path_names))[0] + ".*")[0]
 
 
 class AudioDataset:
