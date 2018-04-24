@@ -51,8 +51,9 @@ def train(args):
 		train_preprocessed_blob_paths, max_samples=args.number_of_samples
 	)[:3]
 
+	num_val_samples = args.number_of_samples / 10 if args.number_of_samples is not None else None
 	val_video_samples, val_mixed_spectrograms, val_source_spectrograms = load_preprocessed_samples(
-		val_preprocessed_blob_paths, max_samples=args.number_of_samples
+		val_preprocessed_blob_paths, max_samples=num_val_samples
 	)[:3]
 
 	print 'normalizing video samples...'
@@ -373,7 +374,6 @@ class AssetManager:
 		return prediction_dir
 
 
-
 def main():
 	parser = argparse.ArgumentParser(add_help=False)
 
@@ -391,13 +391,6 @@ def main():
 	preprocess_parser.add_argument('-c', '--cpus', type=int, default=8)
 	preprocess_parser.set_defaults(func=preprocess, which='preprocess')
 
-	generate_parser = action_parsers.add_parser('generate_vocoder_dataset')
-	generate_parser.add_argument('-tdn', '--train_data_name', type=str, required=True)
-	generate_parser.add_argument('-mn', '--model', type=str, required=True)
-	generate_parser.add_argument('-fps', '--frames_per_second', type=int, default=25)
-	generate_parser.add_argument('-sr', '--sampling_rate', type=int, default=16000)
-	generate_parser.set_defaults(func=generate_vocoder_dataset)
-
 	train_parser = action_parsers.add_parser('train')
 	train_parser.add_argument('-mn', '--model', type=str, required=True)
 	train_parser.add_argument('-tdn', '--train_data_names', nargs='+', type=str, required=True)
@@ -406,14 +399,6 @@ def main():
 	train_parser.add_argument('-g', '--gpus', type=int, default=1)
 	train_parser.set_defaults(func=train)
 
-	train_vocoder_parser = action_parsers.add_parser('train_vocoder')
-	train_vocoder_parser.add_argument('-mn', '--model', type=str, required=True)
-	train_vocoder_parser.add_argument('-tdn', '--train_data_name', type=str, required=True)
-	train_vocoder_parser.add_argument('-vdn', '--val_data_name', type=str)
-	train_vocoder_parser.add_argument('-ns', '--number_of_samples', type=int)
-	train_vocoder_parser.add_argument('-g', '--gpus', type=int, default=1)
-	train_vocoder_parser.set_defaults(func=train_vocoder)
-
 	predict_parser = action_parsers.add_parser('predict')
 	predict_parser.add_argument('-mn', '--model', type=str, required=True)
 	predict_parser.add_argument('-dn', '--data_name', type=str, required=True)
@@ -421,18 +406,6 @@ def main():
 	predict_parser.add_argument('-g', '--gpus', type=int, default=1)
 	predict_parser.set_defaults(func=predict)
 
-	predict_vocoder_parser = action_parsers.add_parser('predict_vocoder')
-	predict_vocoder_parser.add_argument('-mn', '--model', type=str, required=True)
-	predict_vocoder_parser.add_argument('-dn', '--data_name', type=str, required=True)
-	predict_vocoder_parser.add_argument('-ns', '--number_of_samples', type=int)
-	predict_vocoder_parser.add_argument('-g', '--gpus', type=int, default=1)
-	predict_vocoder_parser.set_defaults(func=predict_vocoder)
-
-	# test_parser = action_parsers.add_parser('test')
-	# test_parser.add_argument('-mn', '--model', type=str, required=True)
-	# test_parser.add_argument('-p', '--paths', type=str, nargs='+', required=True)
-	# test_parser.add_argument('-g', '--gpus', type=int, default=1)
-	# test_parser.set_defaults(func=test, which='test')
 
 	args = parser.parse_args()
 	args.func(args)
