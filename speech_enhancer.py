@@ -39,70 +39,55 @@ def preprocess(args):
 	with open(assets.get_preprocessed_blob_metadata_path(args.data_name), 'wb') as preprocessed_fd:
 		pickle.dump(metadatas, preprocessed_fd)
 
-
 def train(args):
 	assets = AssetManager(args.base_folder)
 	assets.create_model(args.model)
 
-	train_preprocessed_blob_paths = [assets.get_preprocessed_blob_data_path(p) for p in args.train_data_names]
-	val_preprocessed_blob_paths = [assets.get_preprocessed_blob_data_path(p) for p in args.val_data_names]
+	train_dataset_path = assets.get_data_set_dir(args.train_dataset_dir)
+	val_dataset_path = assets.get_data_set_dir(args.val_dataset_dir)
 
-	train_video_samples, train_mixed_spectrograms, train_source_spectrograms = load_preprocessed_samples(
-		train_preprocessed_blob_paths, max_samples=args.number_of_samples
-	)[:3]
+	print 'train dataset: ', train_dataset_path
+	print 'val dataset: ', val_dataset_path
 
-	num_val_samples = args.number_of_samples / 10 if args.number_of_samples is not None else None
-	val_video_samples, val_mixed_spectrograms, val_source_spectrograms = load_preprocessed_samples(
-		val_preprocessed_blob_paths, max_samples=num_val_samples
-	)[:3]
+	print 'listing train speakers...'
+	train_speaker_ids = list_speakers(args.train_speakers, args.train_ignored_speakers, train_dataset_path)[:10]
+	print 'train speakers: ', train_speaker_ids
 
-	print 'normalizing video samples...'
-	video_normalizer = VideoNormalizer(train_video_samples)
-	video_normalizer.normalize(train_video_samples)
-	video_normalizer.normalize(val_video_samples)
+	print 'listing val speakers...'
+	val_speaker_ids = list_speakers(args.val_speakers, args.val_ignored_speakers, val_dataset_path)[:10]
+	print 'val speakers: ', val_speaker_ids
 
-	with open(assets.get_normalization_cache_path(args.model), 'wb') as normalization_fd:
-		pickle.dump(video_normalizer, normalization_fd)
+	print 'listing train data...'
+	train_speech_entries, train_noise_file_paths = list_data(
+		train_dataset_path, train_speaker_ids, args.train_noise_dirs, max_files=args.number_of_samples
+	)
 
-	num_frames = train_video_samples.shape[3]
-	num_audio_bins = num_frames / SPLIT * 4 * SPLIT
+	print 'listing val data...'
+	val_speech_entries, val_noise_file_paths = list_data(
+		val_dataset_path, val_speaker_ids, args.val_noise_dirs, max_files=args.number_of_samples
+	)
 
-	train_mixed_spectrograms = split_and_concat(train_mixed_spectrograms[..., :num_audio_bins], axis=-1, split=SPLIT)
-	train_source_spectrograms = split_and_concat(train_source_spectrograms[..., :num_audio_bins], axis=-1, split=SPLIT)
-	val_mixed_spectrograms = split_and_concat(val_mixed_spectrograms[..., :num_audio_bins], axis=-1, split=SPLIT)
-	val_source_spectrograms = split_and_concat(val_source_spectrograms[..., :num_audio_bins], axis=-1, split=SPLIT)
+	print 'num train clean files: ', len(train_speech_entries)
+	print 'num val clean files: ', len(val_speech_entries)
+	print 'num train noise files: ', len(train_noise_file_paths)
+	print 'num val noise files: ', len(val_noise_file_paths)
 
-	train_video_samples = split_and_concat(train_video_samples, axis=-1, split=SPLIT)
-	val_video_samples = split_and_concat(val_video_samples, axis=-1, split=SPLIT)
-
-	# transpose freq and time axis
-	train_mixed_spectrograms = np.swapaxes(train_mixed_spectrograms, 1, 2)
-	train_source_spectrograms = np.swapaxes(train_source_spectrograms, 1, 2)
-	val_mixed_spectrograms = np.swapaxes(val_mixed_spectrograms, 1, 2)
-	val_source_spectrograms = np.swapaxes(val_source_spectrograms, 1, 2)
-
-	train_video_samples = np.rollaxis(train_video_samples, 3, 1)
-	val_video_samples = np.rollaxis(val_video_samples, 3, 1)
-
-	print 'spec shape:', train_mixed_spectrograms.shape
-	print 'vid shape:', train_video_samples.shape
-
-	spec_shape = (None, 80)
-	video_shape = (None, 128, 128)
+	# dp = DataProcessor(25, 16000)
+	# for tup in dp.data_generator(train_speech_entries, train_noise_file_paths):
+	# 	for dicti in tup:
+	# 		for item in dicti.values():
+	# 			print item.shape
 
 	print 'building network...'
-	network = SpeechEnhancementNetwork.build(video_shape,
-											 spec_shape,
+	network = SpeechEnhancementNetwork.build((None, 224, 224),
+											 (None, 80),
 											 num_filters=80,
-											 kernel_size=7,
-											 num_blocks=20,
+											 kernel_size=5,
+											 num_blocks=5,
 											 num_gpus=args.gpus,
 											 model_cache_dir=assets.get_model_cache_path(args.model)
 											 )
-	network.train(
-		train_mixed_spectrograms, train_video_samples, train_source_spectrograms,
-		val_mixed_spectrograms, val_video_samples, val_source_spectrograms
-	)
+	network.train(train_speech_entries, train_noise_file_paths, val_speech_entries, val_noise_file_paths)
 
 	# network.save(model_cache_dir)
 
@@ -231,15 +216,15 @@ class PredictionStorage(object):
 
 		return sample_prediction_dir
 
-def list_speakers(args):
-	if args.speakers is None:
-		dataset = AudioVisualDataset(args.dataset_dir)
+def list_speakers(speakers, ignored_speakers, dataset_dir):
+	if speakers is None:
+		dataset = AudioVisualDataset(dataset_dir)
 		speaker_ids = dataset.list_speakers()
 	else:
-		speaker_ids = args.speakers
+		speaker_ids = speakers
 
-	if args.ignored_speakers is not None:
-		for speaker_id in args.ignored_speakers:
+	if ignored_speakers is not None:
+		for speaker_id in ignored_speakers:
 			speaker_ids.remove(speaker_id)
 
 	return speaker_ids
@@ -254,9 +239,9 @@ def list_data(dataset_dir, speaker_ids, noise_dirs, max_files=None, shuffle=True
 	noise_dataset = AudioDataset(noise_dirs)
 	noise_file_paths = noise_dataset.subset(max_files, shuffle)
 
-	n_files = min(len(speech_subset), len(noise_file_paths))
+	# n_files = min(len(speech_subset), len(noise_file_paths))
 
-	return speech_subset[:n_files], noise_file_paths[:n_files]
+	return speech_subset, noise_file_paths
 
 
 def load_preprocessed_samples(preprocessed_blob_paths, max_samples=None):
@@ -393,11 +378,25 @@ def main():
 
 	train_parser = action_parsers.add_parser('train')
 	train_parser.add_argument('-mn', '--model', type=str, required=True)
-	train_parser.add_argument('-tdn', '--train_data_names', nargs='+', type=str, required=True)
-	train_parser.add_argument('-vdn', '--val_data_names', nargs='+', type=str, required=True)
+	train_parser.add_argument('-tds', '--train_dataset_dir', type=str, required=True)
+	train_parser.add_argument('-vds', '--val_dataset_dir', type=str, required=True)
+	train_parser.add_argument('-tn', '--train_noise_dirs', nargs='+', type=str, required=True)
+	train_parser.add_argument('-vn', '--val_noise_dirs', nargs='+', type=str, required=True)
+	train_parser.add_argument('-ts', '--train_speakers', nargs='+', type=str)
+	train_parser.add_argument('-vs', '--val_speakers', nargs='+', type=str)
+	train_parser.add_argument('-tis', '--train_ignored_speakers', nargs='+', type=str)
+	train_parser.add_argument('-vis', '--val_ignored_speakers', nargs='+', type=str)
 	train_parser.add_argument('-ns', '--number_of_samples', type=int)
 	train_parser.add_argument('-g', '--gpus', type=int, default=1)
 	train_parser.set_defaults(func=train)
+
+	# train_parser = action_parsers.add_parser('train')
+	# train_parser.add_argument('-mn', '--model', type=str, required=True)
+	# train_parser.add_argument('-tdn', '--train_data_names', nargs='+', type=str, required=True)
+	# train_parser.add_argument('-vdn', '--val_data_names', nargs='+', type=str, required=True)
+	# train_parser.add_argument('-ns', '--number_of_samples', type=int)
+	# train_parser.add_argument('-g', '--gpus', type=int, default=1)
+	# train_parser.set_defaults(func=train)
 
 	predict_parser = action_parsers.add_parser('predict')
 	predict_parser.add_argument('-mn', '--model', type=str, required=True)

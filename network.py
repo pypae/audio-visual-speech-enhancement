@@ -5,7 +5,7 @@ from keras.callbacks import *
 from keras.models import Model, load_model
 from keras.utils import multi_gpu_model
 
-from utils import ModelCache
+from utils import ModelCache, DataProcessor
 
 import keras.backend as K
 import tensorflow as tf
@@ -109,7 +109,7 @@ class SpeechEnhancementNetwork(object):
 
 		x = Lambda(lambda a: K.expand_dims(a, -1))(video_input)
 
-		x = TimeDistributed(Conv2D(80, (5, 5), padding='same'))(x)
+		x = TimeDistributed(Conv2D(10, (5, 5), padding='same'))(x)
 		x = TimeDistributed(BatchNormalization())(x)
 		x = TimeDistributed(LeakyReLU())(x)
 		x = TimeDistributed(MaxPool2D(strides=(2, 2), padding='same'))(x)
@@ -169,31 +169,57 @@ class SpeechEnhancementNetwork(object):
 
 		return model
 
-	def train(self, train_mixed_spectrograms, train_video_samples, train_label_spectrograms,
-			  validation_mixed_spectrograms, validation_video_samples, validation_label_spectrograms):
 
+	def train(self, train_speech_entries, train_noise_files, val_speech_entries, val_noise_files):
 		SaveModel = LambdaCallback(on_epoch_end=lambda epoch, logs: self.save_model())
 		lr_decay = ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=5, min_lr=0, verbose=1)
 		early_stopping = EarlyStopping(monitor='val_loss', min_delta=0.01, patience=10, verbose=1)
-		tensorboard = TensorBoard(log_dir=self.model_cache.tensorboard_path(),
-								  histogram_freq=10,
-								  batch_size=BATCH_SIZE * self.gpus,
-								  write_graph=False,
-								  write_grads=True)
+		# tensorboard = TensorBoard(log_dir=self.model_cache.tensorboard_path(),
+		# 						  histogram_freq=10,
+		# 						  batch_size=BATCH_SIZE * self.gpus,
+		# 						  write_graph=False,
+		# 						  write_grads=True)
 
-		self.__fit_model.fit(
-			x=[train_video_samples, train_mixed_spectrograms],
-			y=[train_label_spectrograms],
+		dp = DataProcessor(25, 16000)
 
-			validation_data=(
-				[validation_video_samples, validation_mixed_spectrograms],
-				[validation_label_spectrograms],
-			),
+		print 'starting fit...'
+		self.__fit_model.fit_generator(dp.data_generator(train_speech_entries, train_noise_files, shuffle_noise=True),
+									   steps_per_epoch=len(train_speech_entries),
+									   epochs=1000,
+									   callbacks=[SaveModel, lr_decay, early_stopping],
+									   validation_data=dp.data_generator(val_speech_entries, val_noise_files, shuffle_noise=True),
+									   validation_steps=len(val_speech_entries),
+									   use_multiprocessing=True,
+									   workers=1,
+									   verbose=1)
 
-			batch_size=BATCH_SIZE * self.gpus, epochs=1000,
-			callbacks=[SaveModel, lr_decay, early_stopping, tensorboard],
-			verbose=1
-		)
+
+
+	# def train(self, train_mixed_spectrograms, train_video_samples, train_label_spectrograms,
+	# 		  validation_mixed_spectrograms, validation_video_samples, validation_label_spectrograms):
+	#
+	# 	SaveModel = LambdaCallback(on_epoch_end=lambda epoch, logs: self.save_model())
+	# 	lr_decay = ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=5, min_lr=0, verbose=1)
+	# 	early_stopping = EarlyStopping(monitor='val_loss', min_delta=0.01, patience=10, verbose=1)
+	# 	tensorboard = TensorBoard(log_dir=self.model_cache.tensorboard_path(),
+	# 							  histogram_freq=10,
+	# 							  batch_size=BATCH_SIZE * self.gpus,
+	# 							  write_graph=False,
+	# 							  write_grads=True)
+	#
+	# 	self.__fit_model.fit(
+	# 		x=[train_video_samples, train_mixed_spectrograms],
+	# 		y=[train_label_spectrograms],
+	#
+	# 		validation_data=(
+	# 			[validation_video_samples, validation_mixed_spectrograms],
+	# 			[validation_label_spectrograms],
+	# 		),
+	#
+	# 		batch_size=BATCH_SIZE * self.gpus, epochs=1000,
+	# 		callbacks=[SaveModel, lr_decay, early_stopping, tensorboard],
+	# 		verbose=1
+	# 	)
 
 	def predict(self, mixed_spectrograms, video_samples):
 		speech_spectrograms = self.__model.predict([video_samples, mixed_spectrograms], batch_size=1)

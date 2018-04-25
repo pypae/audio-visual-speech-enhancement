@@ -1,12 +1,13 @@
 import numpy as np
 import librosa as lb
-import os, subprocess, multiprocess
+import os, subprocess, multiprocess, random, sys
 
 from mediaio.audio_io import AudioSignal, AudioMixer
 from mediaio.video_io import VideoFileReader
 from facedetection.face_detection import FaceDetector
 from collections import namedtuple
 from datetime import datetime
+
 
 MOUTH_WIDTH = 128
 MOUTH_HEIGHT = 128
@@ -16,16 +17,20 @@ GRIF_LIM_ITERS = 100
 
 class DataProcessor(object):
 
-	def __init__(self, video_fps, audio_sr, db=True, mel=True, audio_bins_per_frame=4):
+	def __init__(self, video_fps, audio_sr, db=True, mel=True, audio_bins_per_video_frame=4, slice_len_in_ms=1000):
 		self.video_fps = video_fps
 		self.audio_sr = audio_sr
 
 		self.mel = mel
 		self.db = db
 
-		self.audio_bins_per_frame = audio_bins_per_frame
+		self.spec_bins_per_video_frame = audio_bins_per_video_frame
+
+		self.vid_frames_per_slice = int(self.video_fps * slice_len_in_ms / 1000.)
+		self.spec_frames_per_slice = int(self.vid_frames_per_slice * self.spec_bins_per_video_frame)
+
 		self.nfft_single_frame = int(self.audio_sr / self.video_fps)
-		self.hop = int(self.nfft_single_frame / self.audio_bins_per_frame)
+		self.hop = int(self.nfft_single_frame / self.spec_bins_per_video_frame)
 
 		self.mean = None
 		self.std = None
@@ -61,6 +66,48 @@ class DataProcessor(object):
 	def preprocess_source(self, source):
 		return self.get_mag_phase(source.get_data())
 
+	def generate_batch_from_sample(self, speech_entry, noise_file_path):
+		frames = get_frames(speech_entry.video_path)
+		video_slices_list = split_to_equal_length(frames, axis=0, slice_len=self.vid_frames_per_slice)
+
+		mixed_signal = mix_source_noise(speech_entry.audio_path, noise_file_path)
+		mixed_spectrogram, mixed_phase = self.get_mag_phase(mixed_signal.get_data())
+		mixed_specs_list = split_to_equal_length(mixed_spectrogram.T, axis=0, slice_len=self.spec_frames_per_slice)
+		mixed_phases_list = split_to_equal_length(mixed_phase.T, axis=0, slice_len=self.spec_frames_per_slice)
+
+		source_signal = AudioSignal.from_wav_file(speech_entry.audio_path)
+		source_spectrogram, source_phase = self.preprocess_source(source_signal)
+		source_specs_list = split_to_equal_length(source_spectrogram.T, axis=0, slice_len=self.spec_frames_per_slice)
+		source_phases_list = split_to_equal_length(source_phase.T, axis=0, slice_len=self.spec_frames_per_slice)
+
+		min_len = min(len(video_slices_list), len(mixed_specs_list), len(source_specs_list))
+
+		video_samples = np.stack(video_slices_list[:min_len])
+		mixed_spectrograms = np.stack(mixed_specs_list[:min_len])
+		mixed_phases = np.stack(mixed_phases_list[:min_len])
+		source_spectrograms = np.stack(source_specs_list[:min_len])
+		source_phases = np.stack(source_phases_list[:min_len])
+
+		return video_samples, mixed_spectrograms, mixed_phases, source_spectrograms, source_phases
+
+
+	def data_generator(self, speech_entries, noise_file_paths, shuffle_noise=False):
+		i = 0
+		while True:
+			for speech_entry in speech_entries:
+				# sys.stderr.write('speech entry: ' + speech_entry.video_path)
+				# print 'speech entry: ', speech_entry.video_path
+				video_samples, mixed_spectrograms, mixed_phases, source_spectrograms, source_phases = self.generate_batch_from_sample(speech_entry,
+																																	  noise_file_paths[i])
+				i += 1
+				if i == len(noise_file_paths):
+					i = 0
+					if shuffle_noise:
+						random.shuffle(noise_file_paths)
+				# print 'video: ', video_samples.shape, 'mix spec: ', mixed_spectrograms.shape, 'source spec: ', source_spectrograms.shape
+				yield ({'input_1': video_samples, 'input_2': mixed_spectrograms}, {'add_7': source_spectrograms})
+
+
 	def preprocess_sample(self, speech_entry, noise_file_path):
 		print ('preprocessing %s, %s' % (speech_entry.audio_path, noise_file_path))
 		metadata = MetaData(speech_entry.speaker_id, speech_entry.video_path, speech_entry.audio_path, noise_file_path, self.video_fps, self.audio_sr)
@@ -77,15 +124,15 @@ class DataProcessor(object):
 												   source_waveform), metadata
 
 	def truncate_sample_to_same_length(self, video, mixed_spec, mixed_phase, source_spec, source_phase, source_waveform):
-		lenghts = [video.shape[-1] * self.audio_bins_per_frame, mixed_spec.shape[-1], mixed_phase.shape[-1], source_spec.shape[-1],
+		lenghts = [video.shape[-1] * self.spec_bins_per_video_frame, mixed_spec.shape[-1], mixed_phase.shape[-1], source_spec.shape[-1],
 				   source_phase.shape[-1]]
 
 		min_audio_frames = min(lenghts)
 
 		# make sure it divides by audio_bins_per_frame
-		min_audio_frames = int(min_audio_frames / self.audio_bins_per_frame) * self.audio_bins_per_frame
+		min_audio_frames = int(min_audio_frames / self.spec_bins_per_video_frame) * self.spec_bins_per_video_frame
 
-		return video[:,:,:min_audio_frames/self.audio_bins_per_frame], mixed_spec[:,:min_audio_frames], mixed_phase[:, :min_audio_frames], \
+		return video[:, :, :min_audio_frames/self.spec_bins_per_video_frame], mixed_spec[:, :min_audio_frames], mixed_phase[:, :min_audio_frames], \
 			   source_spec[:,:min_audio_frames], source_phase[:, :min_audio_frames], source_waveform[:min_audio_frames * self.hop]
 
 
@@ -125,6 +172,8 @@ class DataProcessor(object):
 
 	def reconstruct_waveform_data(self, spectrogram, phase):
 		return lb.istft(spectrogram * phase, self.hop)
+
+
 
 
 def get_frames(video_path):
@@ -184,6 +233,14 @@ def preprocess_data(speech_entries, noise_file_paths, num_cpus):
 		np.stack(source_waveforms),
 		metadatas
 	)
+
+def split_to_equal_length(array, axis, slice_len):
+	slc = [slice(None)] * array.ndim
+	mod = -(array.shape[axis] % slice_len)
+	end = None if mod == 0 else mod
+	slc[axis] = slice(0, end)
+
+	return np.split(array[slc], array.shape[axis] / slice_len, axis)
 
 def split_and_concat(array, axis, split):
 	slc = [slice(None)] * array.ndim
