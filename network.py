@@ -175,11 +175,11 @@ class SpeechEnhancementNetwork(object):
 		SaveModel = LambdaCallback(on_epoch_end=lambda epoch, logs: self.save_model())
 		lr_decay = ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=5, min_lr=0, verbose=1)
 		early_stopping = EarlyStopping(monitor='val_loss', min_delta=0.01, patience=10, verbose=1)
-		tensorboard = TensorBoard(log_dir=self.model_cache.tensorboard_path(),
-								  histogram_freq=10,
-								  batch_size=BATCH_SIZE * self.gpus,
-								  write_graph=False,
-								  write_grads=True)
+		# tensorboard = TensorBoard(log_dir=self.model_cache.tensorboard_path(),
+		# 						  histogram_freq=10,
+		# 						  batch_size=BATCH_SIZE * self.gpus,
+		# 						  write_graph=False,
+		# 						  write_grads=True)
 
 		self.__fit_model.fit(
 			x=[train_video_samples, train_mixed_spectrograms],
@@ -191,7 +191,7 @@ class SpeechEnhancementNetwork(object):
 			),
 
 			batch_size=BATCH_SIZE * self.gpus, epochs=1000,
-			callbacks=[SaveModel, lr_decay, early_stopping, tensorboard],
+			callbacks=[SaveModel, lr_decay, early_stopping],
 			verbose=1
 		)
 
