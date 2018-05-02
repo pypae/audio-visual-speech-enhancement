@@ -67,26 +67,19 @@ def train(args):
 	)
 
 	print 'num train clean files: ', len(train_speech_entries)
-	print 'num val clean files: ', len(val_speech_entries)
 	print 'num train noise files: ', len(train_noise_file_paths)
+	print 'num val clean files: ', len(val_speech_entries)
 	print 'num val noise files: ', len(val_noise_file_paths)
 
-	# dp = DataProcessor(25, 16000)
-	# for tup in dp.data_generator(train_speech_entries, train_noise_file_paths):
-	# 	for dicti in tup:
-	# 		for item in dicti.values():
-	# 			print item.shape
-
 	print 'building network...'
-	network = SpeechEnhancementNetwork.build((None, 224, 224),
-											 (None, 80),
-											 num_filters=80,
-											 kernel_size=5,
-											 num_blocks=15,
-											 num_gpus=args.gpus,
-											 model_cache_dir=assets.get_model_cache_path(args.model)
-											 )
-	network.train(train_speech_entries, train_noise_file_paths, val_speech_entries, val_noise_file_paths)
+	network = SpeechEnhancementNetwork(spec_shape=(None, 80),
+									   vid_shape=(None, 224, 224),
+									   num_filters=80,
+									   kernel_size=5,
+									   num_layers=5,
+									   num_gpus=args.gpus)
+	network.build()
+	# network.train(train_speech_entries, train_noise_file_paths, val_speech_entries, val_noise_file_paths)
 
 	# network.save(model_cache_dir)
 
