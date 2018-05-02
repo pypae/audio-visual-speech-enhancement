@@ -91,21 +91,28 @@ class DataProcessor(object):
 		return video_samples, mixed_spectrograms, mixed_phases, source_spectrograms, source_phases
 
 
-	def data_generator(self, speech_entries, noise_file_paths, shuffle_noise=False):
+	def data_generator(self, speech_entries, noise_file_paths, shuffle_noise=False, batch_size=4, num_gpu=1):
 		i = 0
 		while True:
 			for speech_entry in speech_entries:
-				# sys.stderr.write('speech entry: ' + speech_entry.video_path)
-				# print 'speech entry: ', speech_entry.video_path
-				video_samples, mixed_spectrograms, mixed_phases, source_spectrograms, source_phases = self.generate_batch_from_sample(speech_entry,
-																																	  noise_file_paths[i])
-				i += 1
-				if i == len(noise_file_paths):
-					i = 0
-					if shuffle_noise:
-						random.shuffle(noise_file_paths)
-				# print 'video: ', video_samples.shape, 'mix spec: ', mixed_spectrograms.shape, 'source spec: ', source_spectrograms.shape
-				yield ({'input_1': video_samples, 'input_2': mixed_spectrograms}, {'add_7': source_spectrograms})
+				try:
+					# sys.stderr.write('speech entry: ' + speech_entry.video_path)
+					# print 'speech entry: ', speech_entry.video_path
+					video_samples, mixed_spectrograms, mixed_phases, source_spectrograms, source_phases = self.generate_batch_from_sample(speech_entry,
+																																		  noise_file_paths[i])
+					i += 1
+					if i == len(noise_file_paths):
+						i = 0
+						if shuffle_noise:
+							random.shuffle(noise_file_paths)
+
+					raw_batch_size = video_samples.shape[0]
+					# print 'raw_batch_size: ', raw_batch_size
+					for j in range(0, raw_batch_size, batch_size*num_gpu):
+						yield ([video_samples[j:j+batch_size], mixed_spectrograms[j:j+batch_size]],
+							   [source_spectrograms[j:j+batch_size]])
+				except Exception as e:
+					continue
 
 
 	def preprocess_sample(self, speech_entry, noise_file_path):

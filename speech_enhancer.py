@@ -3,7 +3,6 @@ import argparse, pickle
 
 from dataset import AudioVisualDataset, AudioDataset
 from network import SpeechEnhancementNetwork
-from wavenet_vocoder import WavenetVocoder
 from shutil import copy2
 from mediaio import ffmpeg
 from utils import *
@@ -51,16 +50,16 @@ def train(args):
 
 	print 'listing train speakers...'
 	train_speaker_ids = list_speakers(args.train_speakers, args.train_ignored_speakers, train_dataset_path)[:10]
-	print 'train speakers: ', train_speaker_ids
 
 	print 'listing val speakers...'
 	val_speaker_ids = list_speakers(args.val_speakers, args.val_ignored_speakers, val_dataset_path)[:10]
-	print 'val speakers: ', val_speaker_ids
+	print 'num train speakers: ', len(train_speaker_ids)
 
 	print 'listing train data...'
 	train_speech_entries, train_noise_file_paths = list_data(
 		train_dataset_path, train_speaker_ids, args.train_noise_dirs, max_files=args.number_of_samples
 	)
+	print 'num val speakers: ', len(val_speaker_ids)
 
 	print 'listing val data...'
 	val_speech_entries, val_noise_file_paths = list_data(
@@ -83,7 +82,7 @@ def train(args):
 											 (None, 80),
 											 num_filters=80,
 											 kernel_size=5,
-											 num_blocks=5,
+											 num_blocks=15,
 											 num_gpus=args.gpus,
 											 model_cache_dir=assets.get_model_cache_path(args.model)
 											 )
@@ -231,8 +230,8 @@ def list_speakers(speakers, ignored_speakers, dataset_dir):
 
 
 def list_data(dataset_dir, speaker_ids, noise_dirs, max_files=None, shuffle=True):
-	if max_files is None:
-		max_files = 1000
+	# if max_files is None:
+	# 	max_files = 1000
 	speech_dataset = AudioVisualDataset(dataset_dir)
 	speech_subset = speech_dataset.subset(speaker_ids, max_files, shuffle)
 
@@ -376,19 +375,19 @@ def main():
 	preprocess_parser.add_argument('-c', '--cpus', type=int, default=8)
 	preprocess_parser.set_defaults(func=preprocess, which='preprocess')
 
-	train_parser = action_parsers.add_parser('train')
-	train_parser.add_argument('-mn', '--model', type=str, required=True)
-	train_parser.add_argument('-tds', '--train_dataset_dir', type=str, required=True)
-	train_parser.add_argument('-vds', '--val_dataset_dir', type=str, required=True)
-	train_parser.add_argument('-tn', '--train_noise_dirs', nargs='+', type=str, required=True)
-	train_parser.add_argument('-vn', '--val_noise_dirs', nargs='+', type=str, required=True)
-	train_parser.add_argument('-ts', '--train_speakers', nargs='+', type=str)
-	train_parser.add_argument('-vs', '--val_speakers', nargs='+', type=str)
-	train_parser.add_argument('-tis', '--train_ignored_speakers', nargs='+', type=str)
-	train_parser.add_argument('-vis', '--val_ignored_speakers', nargs='+', type=str)
-	train_parser.add_argument('-ns', '--number_of_samples', type=int)
-	train_parser.add_argument('-g', '--gpus', type=int, default=1)
-	train_parser.set_defaults(func=train)
+	train_gen_parser = action_parsers.add_parser('train_gen')
+	train_gen_parser.add_argument('-mn', '--model', type=str, required=True)
+	train_gen_parser.add_argument('-tds', '--train_dataset_dir', type=str, required=True)
+	train_gen_parser.add_argument('-vds', '--val_dataset_dir', type=str, required=True)
+	train_gen_parser.add_argument('-tn', '--train_noise_dirs', nargs='+', type=str, required=True)
+	train_gen_parser.add_argument('-vn', '--val_noise_dirs', nargs='+', type=str, required=True)
+	train_gen_parser.add_argument('-ts', '--train_speakers', nargs='+', type=str)
+	train_gen_parser.add_argument('-vs', '--val_speakers', nargs='+', type=str)
+	train_gen_parser.add_argument('-tis', '--train_ignored_speakers', nargs='+', type=str)
+	train_gen_parser.add_argument('-vis', '--val_ignored_speakers', nargs='+', type=str)
+	train_gen_parser.add_argument('-ns', '--number_of_samples', type=int)
+	train_gen_parser.add_argument('-g', '--gpus', type=int, default=1)
+	train_gen_parser.set_defaults(func=train)
 
 	# train_parser = action_parsers.add_parser('train')
 	# train_parser.add_argument('-mn', '--model', type=str, required=True)

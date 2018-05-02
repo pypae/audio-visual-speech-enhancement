@@ -1,13 +1,14 @@
 
-from keras import optimizers
-from keras.layers import *
-from keras.callbacks import *
-from keras.models import Model, load_model
-from keras.utils import multi_gpu_model
+
+from tensorflow.python.keras import optimizers
+from tensorflow.python.keras.layers import *
+from tensorflow.python.keras.callbacks import *
+from tensorflow.python.keras.models import Model, load_model
+from tensorflow.python.keras.utils import multi_gpu_model
+from tensorflow.python.keras import backend as K
 
 from utils import ModelCache, DataProcessor
 
-import keras.backend as K
 import tensorflow as tf
 import numpy as np
 
@@ -78,12 +79,12 @@ class SpeechEnhancementNetwork(object):
 
 		for i in range(num_blocks):
 			delta, features = cls.__build_res_block(spec_shape,
-									  vid_shape=spec_shape,
+									  vid_shape=[spec_shape[0], 256],
 									  num_filters=num_filters,
 									  kernel_size=kernel_size,
 									  number=i)([input_spec, vid_encoding, delta, features])
 
-		delta = cls.__build_res_block(spec_shape, spec_shape, num_filters, kernel_size, last=True)([input_spec, vid_encoding, delta, features])
+		delta = cls.__build_res_block(spec_shape, [spec_shape[0], 256], num_filters, kernel_size, last=True)([input_spec, vid_encoding, delta, features])
 
 		out = Add()([input_spec, delta])
 
@@ -107,6 +108,8 @@ class SpeechEnhancementNetwork(object):
 	def __build_video_encoder(video_shape):
 		video_input = Input(shape=video_shape)
 
+		# x = video_input
+
 		x = Lambda(lambda a: K.expand_dims(a, -1))(video_input)
 
 		x = TimeDistributed(Conv2D(10, (5, 5), padding='same'))(x)
@@ -115,13 +118,13 @@ class SpeechEnhancementNetwork(object):
 		x = TimeDistributed(MaxPool2D(strides=(2, 2), padding='same'))(x)
 		x = TimeDistributed(Dropout(0.5))(x)
 
-		x = TimeDistributed(Conv2D(80, (5, 5), padding='same'))(x)
+		x = TimeDistributed(Conv2D(20, (5, 5), padding='same'))(x)
 		x = TimeDistributed(BatchNormalization())(x)
 		x = TimeDistributed(LeakyReLU())(x)
 		x = TimeDistributed(MaxPool2D(strides=(2, 2), padding='same'))(x)
 		x = TimeDistributed(Dropout(0.5))(x)
 
-		x = TimeDistributed(Conv2D(80, (3, 3), padding='same'))(x)
+		x = TimeDistributed(Conv2D(40, (3, 3), padding='same'))(x)
 		x = TimeDistributed(BatchNormalization())(x)
 		x = TimeDistributed(LeakyReLU())(x)
 		x = TimeDistributed(MaxPool2D(strides=(2, 2), padding='same'))(x)
@@ -147,19 +150,19 @@ class SpeechEnhancementNetwork(object):
 
 		x = TimeDistributed(Flatten())(x)
 
-		x = Conv1D(80, 5, padding='same')(x)
+		x = Conv1D(256, 5, padding='same')(x)
 		x = TimeDistributed(BatchNormalization())(x)
 		x = TimeDistributed(LeakyReLU())(x)
 
-		x = Conv1D(80, 5, padding='same')(x)
+		x = Conv1D(256, 5, padding='same')(x)
 		x = TimeDistributed(BatchNormalization())(x)
 		x = TimeDistributed(LeakyReLU())(x)
 
-		x = Conv1D(80, 5, padding='same')(x)
+		x = Conv1D(256, 5, padding='same')(x)
 		x = TimeDistributed(BatchNormalization())(x)
 		x = TimeDistributed(LeakyReLU())(x)
 
-		x = Conv1D(80, 5, padding='same')(x)
+		x = Conv1D(256, 5, padding='same')(x)
 
 		x = UpSampling1D(4)(x)
 
@@ -182,12 +185,14 @@ class SpeechEnhancementNetwork(object):
 
 		dp = DataProcessor(25, 16000)
 
+
+		print 'num gpus: ', self.gpus
 		print 'starting fit...'
-		self.__fit_model.fit_generator(dp.data_generator(train_speech_entries, train_noise_files, shuffle_noise=True),
+		self.__fit_model.fit_generator(dp.data_generator(train_speech_entries, train_noise_files, shuffle_noise=True, num_gpu=self.gpus),
 									   steps_per_epoch=len(train_speech_entries),
 									   epochs=1000,
 									   callbacks=[SaveModel, lr_decay, early_stopping],
-									   validation_data=dp.data_generator(val_speech_entries, val_noise_files, shuffle_noise=True),
+									   validation_data=dp.data_generator(val_speech_entries, val_noise_files, shuffle_noise=True, num_gpu=self.gpus),
 									   validation_steps=len(val_speech_entries),
 									   use_multiprocessing=True,
 									   workers=1,
