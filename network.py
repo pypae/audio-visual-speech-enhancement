@@ -4,13 +4,14 @@ from tensorflow.python.keras import optimizers
 from tensorflow.python.keras.layers import *
 from tensorflow.python.keras.callbacks import *
 from tensorflow.python.keras.models import Model, load_model
-from tensorflow.python.keras.utils import multi_gpu_model
+from tensorflow.python.keras.utils import multi_gpu_model, Sequence
 from tensorflow.python.keras import backend as K
 
 from utils import ModelCache, DataProcessor
 
 import tensorflow as tf
 import numpy as np
+import random
 
 AUDIO_TO_VIDEO_RATIO = 4
 BATCH_SIZE = 4
@@ -31,12 +32,13 @@ class SpeechEnhancementNetwork(object):
 
 	def __build_AV_res_block(self, prev_vid, prev_audio, prev_delta, input_spec, pool):
 
-		vid = self.__distributed_2D_conv_block(prev_vid, pool)
+		# vid = self.__distributed_2D_conv_block(prev_vid, pool)
+		vid = prev_vid
 
 		tiled_vid = TimeDistributed(Flatten())(vid)
 		tiled_vid = UpSampling1D(AUDIO_TO_VIDEO_RATIO)(tiled_vid)
 
-		audio = self.__conv_block(prev_audio)
+		audio = Add()([self.__conv_block(prev_audio), prev_audio])
 
 		x = Concatenate()([tiled_vid, audio, prev_delta, input_spec])
 
@@ -53,7 +55,6 @@ class SpeechEnhancementNetwork(object):
 		return x
 
 
-
 	def __distributed_2D_conv_block(self, prev_x, pool):
 		x = TimeDistributed(Conv2D(self.num_filters, (self.kernel_size, self.kernel_size), padding='same'))(prev_x)
 		x = TimeDistributed(BatchNormalization())(x)
@@ -68,22 +69,28 @@ class SpeechEnhancementNetwork(object):
 		input_spec = Input(self.spec_shape)
 		input_vid = Input(self.vid_shape)
 
-
+		# video encoder
 		vid = Lambda(lambda a: K.expand_dims(a, -1))(input_vid)
-		vid = self.__distributed_2D_conv_block(vid, pool=4)
-		vid = self.__distributed_2D_conv_block(vid, pool=4)
-		vid = self.__distributed_2D_conv_block(vid, pool=4)
+		vid = self.__distributed_2D_conv_block(vid, pool=2)
+		vid = self.__distributed_2D_conv_block(vid, pool=2)
+		vid = self.__distributed_2D_conv_block(vid, pool=2)
+		vid = self.__distributed_2D_conv_block(vid, pool=2)
+		vid = self.__distributed_2D_conv_block(vid, pool=2)
+		vid = self.__distributed_2D_conv_block(vid, pool=2)
 
 		tiled_vid = TimeDistributed(Flatten())(vid)
 		tiled_vid = UpSampling1D(AUDIO_TO_VIDEO_RATIO)(tiled_vid)
 
+		# first audio conv - not res
 		audio = self.__conv_block(input_spec)
 
+		# first delta - not res
 		x = Concatenate()([tiled_vid, audio])
 		delta = self.__conv_block(x)
 
+		# res blocks
 		for i in range(self.num_layers):
-			vid, audio, delta = self.__build_AV_res_block(vid, audio, delta, input_spec, pool=2)
+			vid, audio, delta = self.__build_AV_res_block(vid, audio, delta, input_spec, pool=0)
 
 		tiled_vid = TimeDistributed(Flatten())(vid)
 		tiled_vid = UpSampling1D(AUDIO_TO_VIDEO_RATIO)(tiled_vid)
@@ -92,6 +99,8 @@ class SpeechEnhancementNetwork(object):
 		delta = Add()([self.__conv_block(x), delta])
 
 		out = Add()([delta, input_spec])
+
+		run_opts = tf.RunOptions(report_tensor_allocations_upon_oom=True)
 
 		if self.gpus > 1:
 			with tf.device('/cpu:0'):
@@ -102,215 +111,56 @@ class SpeechEnhancementNetwork(object):
 			fit_model = model
 
 		optimizer = optimizers.Adam(lr=5e-4)
-		fit_model.compile(loss='mean_squared_error', optimizer=optimizer)
+		fit_model.compile(loss='mean_squared_error', optimizer=optimizer, options=run_opts)
 
-		print 'Net'
-		model.summary(line_length=200)
+		# print 'Net'
+		# model.summary(line_length=150)
 
 		self.__model = model
 		self.__fit_model = fit_model
-
-	# @classmethod
-	# def __build_res_block(cls, input_shape, vid_shape, num_filters, kernel_size, number=None, last=False):
-	# 	input_spec = Input(input_shape)
-	# 	previous_delta = Input(input_shape)
-	# 	previous_features = Input(input_shape)
-	# 	vid_input = Input(vid_shape)
-	#
-	#
-	# 	x = Concatenate()([input_spec, vid_input, previous_delta, previous_features])
-	#
-	# 	delta = Conv1D(num_filters, kernel_size, padding='same')(x)
-	# 	delta = BatchNormalization()(delta)
-	# 	delta = LeakyReLU()(delta)
-	# 	delta = Dropout(0.5)(delta)
-	# 	delta = Conv1D(num_filters, kernel_size, padding='same')(delta)
-	#
-	# 	if not last:
-	# 		features = Conv1D(num_filters, kernel_size, padding='same')(x)
-	# 		features = BatchNormalization()(features)
-	# 		features = LeakyReLU()(features)
-	# 		features = Dropout(0.5)(features)
-	#
-	# 	delta = Add()([previous_delta, delta])
-	#
-	# 	outputs = [delta, features] if not last else [delta]
-	#
-	# 	if number is not None:
-	# 		model = Model(inputs=[input_spec, vid_input, previous_delta, previous_features], outputs=outputs, name='res_block_' + str(number))
-	# 		if number == 1:
-	# 			print 'Res Block'
-	# 			model.summary()
-	# 	else:
-	# 		model = Model(inputs=[input_spec, vid_input, previous_delta, previous_features], outputs=outputs)
-	#
-	# 	return model
-
-	# @classmethod
-	# def build(cls, vid_shape, spec_shape, num_filters, kernel_size, num_blocks, num_gpus, model_cache_dir):
-	#
-	# 	input_vid = Input(vid_shape)
-	# 	input_spec = Input(spec_shape)
-	#
-	# 	vid_encoding = cls.__build_video_encoder(vid_shape)(input_vid)
-	#
-	# 	spec = Conv1D(num_filters, kernel_size, padding='same')(input_spec)
-	# 	spec = BatchNormalization()(spec)
-	# 	spec = LeakyReLU()(spec)
-	#
-	# 	x = Concatenate()([spec, vid_encoding])
-	#
-	# 	delta = Conv1D(num_filters, kernel_size, padding='same')(x)
-	# 	features = Conv1D(num_filters, kernel_size, padding='same')(x)
-	#
-	# 	for i in range(num_blocks):
-	# 		delta, features = cls.__build_res_block(spec_shape,
-	# 								  vid_shape=[spec_shape[0], 256],
-	# 								  num_filters=num_filters,
-	# 								  kernel_size=kernel_size,
-	# 								  number=i)([input_spec, vid_encoding, delta, features])
-	#
-	# 	delta = cls.__build_res_block(spec_shape, [spec_shape[0], 256], num_filters, kernel_size, last=True)([input_spec, vid_encoding, delta, features])
-	#
-	# 	out = Add()([input_spec, delta])
-	#
-	# 	if num_gpus > 1:
-	# 		with tf.device('/cpu:0'):
-	# 			model = Model(inputs=[input_vid, input_spec], outputs=[out], name='Net')
-	# 			fit_model = multi_gpu_model(model, gpus=num_gpus)
-	# 	else:
-	# 		model = Model(inputs=[input_vid, input_spec], outputs=[out], name='Net')
-	# 		fit_model = model
-	#
-	# 	optimizer = optimizers.Adam(lr=5e-4)
-	# 	fit_model.compile(loss='mean_squared_error', optimizer=optimizer)
-	#
-	# 	print 'Net'
-	# 	model.summary()
-	#
-	# 	return SpeechEnhancementNetwork(model, fit_model, num_gpus, model_cache_dir)
-
-	@staticmethod
-	def __build_video_encoder(video_shape):
-		video_input = Input(shape=video_shape)
-
-		# x = video_input
-
-		x = Lambda(lambda a: K.expand_dims(a, -1))(video_input)
-
-		x = TimeDistributed(Conv2D(10, (5, 5), padding='same'))(x)
-		x = TimeDistributed(BatchNormalization())(x)
-		x = TimeDistributed(LeakyReLU())(x)
-		x = TimeDistributed(MaxPool2D(strides=(2, 2), padding='same'))(x)
-		x = TimeDistributed(Dropout(0.5))(x)
-
-		x = TimeDistributed(Conv2D(20, (5, 5), padding='same'))(x)
-		x = TimeDistributed(BatchNormalization())(x)
-		x = TimeDistributed(LeakyReLU())(x)
-		x = TimeDistributed(MaxPool2D(strides=(2, 2), padding='same'))(x)
-		x = TimeDistributed(Dropout(0.5))(x)
-
-		x = TimeDistributed(Conv2D(40, (3, 3), padding='same'))(x)
-		x = TimeDistributed(BatchNormalization())(x)
-		x = TimeDistributed(LeakyReLU())(x)
-		x = TimeDistributed(MaxPool2D(strides=(2, 2), padding='same'))(x)
-		x = TimeDistributed(Dropout(0.5))(x)
-
-		x = TimeDistributed(Conv2D(80, (3, 3), padding='same'))(x)
-		x = TimeDistributed(BatchNormalization())(x)
-		x = TimeDistributed(LeakyReLU())(x)
-		x = TimeDistributed(MaxPool2D(strides=(2, 2), padding='same'))(x)
-		x = TimeDistributed(Dropout(0.5))(x)
-
-		x = TimeDistributed(Conv2D(80, (3, 3), padding='same'))(x)
-		x = TimeDistributed(BatchNormalization())(x)
-		x = TimeDistributed(LeakyReLU())(x)
-		x = TimeDistributed(MaxPool2D(strides=(2, 2), padding='same'))(x)
-		x = TimeDistributed(Dropout(0.5))(x)
-
-		x = TimeDistributed(Conv2D(80, (3, 3), padding='same'))(x)
-		x = TimeDistributed(BatchNormalization())(x)
-		x = TimeDistributed(LeakyReLU())(x)
-		x = TimeDistributed(MaxPool2D(strides=(2, 2), padding='same'))(x)
-		x = TimeDistributed(Dropout(0.5))(x)
-
-		x = TimeDistributed(Flatten())(x)
-
-		x = Conv1D(256, 5, padding='same')(x)
-		x = TimeDistributed(BatchNormalization())(x)
-		x = TimeDistributed(LeakyReLU())(x)
-
-		x = Conv1D(256, 5, padding='same')(x)
-		x = TimeDistributed(BatchNormalization())(x)
-		x = TimeDistributed(LeakyReLU())(x)
-
-		x = Conv1D(256, 5, padding='same')(x)
-		x = TimeDistributed(BatchNormalization())(x)
-		x = TimeDistributed(LeakyReLU())(x)
-
-		x = Conv1D(256, 5, padding='same')(x)
-
-		x = UpSampling1D(4)(x)
-
-		model = Model(inputs=video_input, outputs=x, name='Video_Encoder')
-		print 'Video Encoder'
-		model.summary()
-
-		return model
 
 
 	def train(self, train_speech_entries, train_noise_files, val_speech_entries, val_noise_files):
 		SaveModel = LambdaCallback(on_epoch_end=lambda epoch, logs: self.save_model())
 		lr_decay = ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=5, min_lr=0, verbose=1)
-		early_stopping = EarlyStopping(monitor='val_loss', min_delta=0.01, patience=10, verbose=1)
-		# tensorboard = TensorBoard(log_dir=self.model_cache.tensorboard_path(),
-		# 						  histogram_freq=10,
-		# 						  batch_size=BATCH_SIZE * self.gpus,
-		# 						  write_graph=False,
-		# 						  write_grads=True)
+		early_stopping = EarlyStopping(monitor='val_loss', min_delta=0.01, patience=50, verbose=1)
 
-		dp = DataProcessor(25, 16000)
+		dp = DataProcessor(25, 16000, slice_len_in_ms=200, video_shape=(128, 128))
+		train_data_generator = DataGenerator(train_speech_entries,
+											 train_noise_files,
+											 dp,
+											 shuffle_noise=True,
+											 batch_size=BATCH_SIZE,
+											 num_gpu=self.gpus)
 
+		val_data_generator = DataGenerator(val_speech_entries,
+										   val_noise_files,
+										   dp,
+										   shuffle_noise=True,
+										   batch_size=BATCH_SIZE,
+										   num_gpu=self.gpus)
+
+
+
+		# config = tf.ConfigProto()
+		# config.gpu_options.per_process_gpu_memory_fraction = 0.8
+		# # config.gpu_options.allow_growth = True
+		# K.set_session(tf.Session(config=config))
 
 		print 'num gpus: ', self.gpus
 		print 'starting fit...'
-		self.__fit_model.fit_generator(dp.data_generator(train_speech_entries, train_noise_files, shuffle_noise=True, num_gpu=self.gpus),
-									   steps_per_epoch=len(train_speech_entries),
+		self.__fit_model.fit_generator(train_data_generator,
+									   steps_per_epoch=500,
 									   epochs=1000,
 									   callbacks=[SaveModel, lr_decay, early_stopping],
-									   validation_data=dp.data_generator(val_speech_entries, val_noise_files, shuffle_noise=True, num_gpu=self.gpus),
-									   validation_steps=len(val_speech_entries),
+									   validation_data=val_data_generator,
+									   validation_steps=10,
 									   use_multiprocessing=True,
-									   workers=1,
+									   max_queue_size=20,
+									   workers=self.gpus,
 									   verbose=1)
 
 
-
-	# def train(self, train_mixed_spectrograms, train_video_samples, train_label_spectrograms,
-	# 		  validation_mixed_spectrograms, validation_video_samples, validation_label_spectrograms):
-	#
-	# 	SaveModel = LambdaCallback(on_epoch_end=lambda epoch, logs: self.save_model())
-	# 	lr_decay = ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=5, min_lr=0, verbose=1)
-	# 	early_stopping = EarlyStopping(monitor='val_loss', min_delta=0.01, patience=10, verbose=1)
-	# 	tensorboard = TensorBoard(log_dir=self.model_cache.tensorboard_path(),
-	# 							  histogram_freq=10,
-	# 							  batch_size=BATCH_SIZE * self.gpus,
-	# 							  write_graph=False,
-	# 							  write_grads=True)
-	#
-	# 	self.__fit_model.fit(
-	# 		x=[train_video_samples, train_mixed_spectrograms],
-	# 		y=[train_label_spectrograms],
-	#
-	# 		validation_data=(
-	# 			[validation_video_samples, validation_mixed_spectrograms],
-	# 			[validation_label_spectrograms],
-	# 		),
-	#
-	# 		batch_size=BATCH_SIZE * self.gpus, epochs=1000,
-	# 		callbacks=[SaveModel, lr_decay, early_stopping, tensorboard],
-	# 		verbose=1
-	# 	)
 
 	def predict(self, mixed_spectrograms, video_samples):
 		speech_spectrograms = self.__model.predict([video_samples, mixed_spectrograms], batch_size=1)
@@ -330,21 +180,78 @@ class SpeechEnhancementNetwork(object):
 		except Exception as e:
 			print(e)
 
-	# def save(self, model_cache_dir):
-	# 	model_cache = ModelCache(model_cache_dir)
-	#
-	# 	self.__model.save(model_cache.model_path())
-	# 	self.__model.save(model_cache.model_backup_path())
-
 	@staticmethod
 	def load(model_cache_dir):
 		model_cache = ModelCache(model_cache_dir)
 		model = load_model(model_cache.model_path(), custom_objects={'tf':K})
 
-		return SpeechEnhancementNetwork(model)
+		return SpeechEnhancementNetwork(model=model)
+
+
+class DataGenerator(Sequence):
+
+	def __init__(self, speech_entries, noise_file_paths, data_processor, shuffle_noise=False, batch_size=4, num_gpu=1):
+		self.speech_entries = speech_entries
+		self.noise_file_paths = noise_file_paths
+		self.dp = data_processor
+		self.shuffle_noise = shuffle_noise
+		self.batch_size = batch_size
+		self.num_gpu = num_gpu
+		self.noise_index = 0
+		self.speech_index = 0
+		self.cache = []
+
+	def __len__(self):
+		return len(self.speech_entries)
+
+	def __getitem__(self, index):
+		if len(self.cache) != 0:
+			tup = self.cache.pop()
+			# print 'batch size:', tup[0][0].shape[0]
+			return tup
+
+		if self.speech_index >= len(self.speech_entries):
+			self.speech_index = 0
+		if self.noise_index >= len(self.noise_file_paths):
+			self.noise_index = 0
+			if self.shuffle_noise:
+				random.shuffle(self.noise_file_paths)
+
+		try:
+			video_samples, mixed_spectrograms, mixed_phases, source_spectrograms, source_phases = \
+				self.dp.generate_batch_from_sample(self.speech_entries[index], self.noise_file_paths[self.noise_index])
+
+			self.noise_index += 1
+			self.speech_index += 1
+
+			raw_batch_size = video_samples.shape[0]
+			for j in range(0, raw_batch_size, self.batch_size * self.num_gpu):
+				vid = video_samples[j : j + (self.batch_size * self.num_gpu)]
+				mix = mixed_spectrograms[j : j + (self.batch_size * self.num_gpu)]
+				source = source_spectrograms[j : j + (self.batch_size * self.num_gpu)]
+
+				if vid.shape[0] == 0 or vid.shape[0] < self.num_gpu:
+					continue
+				self.cache.append(([vid, mix], [source]))
+
+			tup = self.cache.pop()
+			# print 'batch size:', tup[0][0].shape[0]
+			return tup
+		except Exception as e:
+			pass
+
+	def on_epoch_end(self):
+		pass
 
 
 if __name__ == '__main__':
 	# net = SpeechEnhancementNetwork.build((80, None), (128, 128, None), num_gpus=0)
-	net = SpeechEnhancementNetwork.build((None, 128, 128), (None, 80), num_filters=80, num_blocks=15, kernel_size=5, num_gpus=1,
-										 model_cache_dir=None)
+	net = SpeechEnhancementNetwork(vid_shape=(None, 224, 224),
+								   spec_shape=(None, 80),
+								   num_filters=80,
+								   num_layers=10,
+								   kernel_size=5,
+								   num_gpus=1,
+								   model_cache_dir=None)
+
+	net.build()

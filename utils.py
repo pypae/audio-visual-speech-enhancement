@@ -7,6 +7,7 @@ from mediaio.video_io import VideoFileReader
 from facedetection.face_detection import FaceDetector
 from collections import namedtuple
 from datetime import datetime
+from scipy.misc import imresize
 
 
 MOUTH_WIDTH = 128
@@ -17,7 +18,7 @@ GRIF_LIM_ITERS = 100
 
 class DataProcessor(object):
 
-	def __init__(self, video_fps, audio_sr, db=True, mel=True, audio_bins_per_video_frame=4, slice_len_in_ms=1000):
+	def __init__(self, video_fps, audio_sr, db=True, mel=True, audio_bins_per_video_frame=4, slice_len_in_ms=1000, video_shape=None):
 		self.video_fps = video_fps
 		self.audio_sr = audio_sr
 
@@ -38,6 +39,8 @@ class DataProcessor(object):
 		if self.mel:
 			self.mel_filters = lb.filters.mel(self.audio_sr, self.nfft_single_frame, NUM_MEL_FILTERS, fmin=0, fmax=8000)
 			self.invers_mel_filters = np.linalg.pinv(self.mel_filters)
+
+		self.video_shape = video_shape
 
 	def preprocess_video(self, frames):
 		mouth_cropped_frames = crop_mouth(frames)
@@ -68,6 +71,9 @@ class DataProcessor(object):
 
 	def generate_batch_from_sample(self, speech_entry, noise_file_path):
 		frames = get_frames(speech_entry.video_path)
+		if self.video_shape is not None:
+			frames = np.stack([imresize(frames[i], self.video_shape) for i in range(frames.shape[0])])
+
 		video_slices_list = split_to_equal_length(frames, axis=0, slice_len=self.vid_frames_per_slice)
 
 		mixed_signal = mix_source_noise(speech_entry.audio_path, noise_file_path)
@@ -91,28 +97,35 @@ class DataProcessor(object):
 		return video_samples, mixed_spectrograms, mixed_phases, source_spectrograms, source_phases
 
 
-	def data_generator(self, speech_entries, noise_file_paths, shuffle_noise=False, batch_size=4, num_gpu=1):
-		i = 0
-		while True:
-			for speech_entry in speech_entries:
-				try:
-					# sys.stderr.write('speech entry: ' + speech_entry.video_path)
-					# print 'speech entry: ', speech_entry.video_path
-					video_samples, mixed_spectrograms, mixed_phases, source_spectrograms, source_phases = self.generate_batch_from_sample(speech_entry,
-																																		  noise_file_paths[i])
-					i += 1
-					if i == len(noise_file_paths):
-						i = 0
-						if shuffle_noise:
-							random.shuffle(noise_file_paths)
-
-					raw_batch_size = video_samples.shape[0]
-					# print 'raw_batch_size: ', raw_batch_size
-					for j in range(0, raw_batch_size, batch_size*num_gpu):
-						yield ([video_samples[j:j+batch_size], mixed_spectrograms[j:j+batch_size]],
-							   [source_spectrograms[j:j+batch_size]])
-				except Exception as e:
-					continue
+	# def data_generator(self, speech_entries, noise_file_paths, shuffle_noise=False, batch_size=4, num_gpu=1):
+	# 	i = 0
+	# 	while True:
+	# 		print 'start of loop'
+	# 		for speech_entry in speech_entries:
+	# 			try:
+	# 				# sys.stderr.write('speech entry: ' + speech_entry.video_path)
+	# 				# print 'speech entry: ', speech_entry.video_path
+	# 				video_samples, mixed_spectrograms, mixed_phases, source_spectrograms, source_phases = self.generate_batch_from_sample(speech_entry,
+	# 																																	  noise_file_paths[i])
+	# 				i += 1
+	# 				if i == len(noise_file_paths):
+	# 					i = 0
+	# 					if shuffle_noise:
+	# 						random.shuffle(noise_file_paths)
+	#
+	# 				raw_batch_size = video_samples.shape[0]
+	# 				print 'raw_batch_size:', raw_batch_size
+	#
+	# 				for j in range(0, raw_batch_size, batch_size*num_gpu):
+	# 					vid = video_samples[j:j+batch_size]
+	# 					mix = mixed_spectrograms[j:j+batch_size]
+	# 					source = source_spectrograms[j:j+batch_size]
+	# 					print 'batch_size:', vid.shape[0]
+	# 					if vid.shape[0] == 0:
+	# 						continue
+	# 					yield ([vid, mix], [source])
+	# 			except Exception as e:
+	# 				continue
 
 
 	def preprocess_sample(self, speech_entry, noise_file_path):
