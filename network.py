@@ -38,25 +38,25 @@ class SpeechEnhancementNetwork(object):
 		tiled_vid = TimeDistributed(Flatten())(vid)
 		tiled_vid = UpSampling1D(AUDIO_TO_VIDEO_RATIO)(tiled_vid)
 
-		audio = Add()([self.__conv_block(prev_audio), prev_audio])
+		audio = Add()([self.__conv_block(prev_audio, self.num_filters, 5), prev_audio])
 
 		x = Concatenate()([tiled_vid, audio, prev_delta, input_spec])
 
-		delta = Add()([self.__conv_block(x), prev_delta])
+		delta = Add()([self.__conv_block(x, self.num_filters, 5), prev_delta])
 
 		return vid, audio, delta
 
-
-	def __conv_block(self, prev_x):
-		x = Conv1D(self.num_filters, self.kernel_size, padding='same')(prev_x)
+	@staticmethod
+	def __conv_block(prev_x, num_filters, kernel_size):
+		x = Conv1D(num_filters, kernel_size, padding='same')(prev_x)
 		x = BatchNormalization()(x)
 		x = LeakyReLU()(x)
 
 		return x
 
-
-	def __distributed_2D_conv_block(self, prev_x, pool):
-		x = TimeDistributed(Conv2D(self.num_filters, (self.kernel_size, self.kernel_size), padding='same'))(prev_x)
+	@staticmethod
+	def __distributed_2D_conv_block(prev_x, pool, num_filters, kernel_size):
+		x = TimeDistributed(Conv2D(num_filters, (kernel_size, kernel_size), padding='same'))(prev_x)
 		x = TimeDistributed(BatchNormalization())(x)
 		x = TimeDistributed(LeakyReLU())(x)
 		if pool:
@@ -71,22 +71,23 @@ class SpeechEnhancementNetwork(object):
 
 		# video encoder
 		vid = Lambda(lambda a: K.expand_dims(a, -1))(input_vid)
-		vid = self.__distributed_2D_conv_block(vid, pool=2)
-		vid = self.__distributed_2D_conv_block(vid, pool=2)
-		vid = self.__distributed_2D_conv_block(vid, pool=2)
-		vid = self.__distributed_2D_conv_block(vid, pool=2)
-		vid = self.__distributed_2D_conv_block(vid, pool=2)
-		vid = self.__distributed_2D_conv_block(vid, pool=2)
+		vid = self.__distributed_2D_conv_block(vid, pool=2, num_filters=40, kernel_size=self.kernel_size)
+		vid = self.__distributed_2D_conv_block(vid, pool=2, num_filters=40, kernel_size=self.kernel_size)
+		vid = self.__distributed_2D_conv_block(vid, pool=2, num_filters=80, kernel_size=self.kernel_size)
+		vid = self.__distributed_2D_conv_block(vid, pool=2, num_filters=80, kernel_size=self.kernel_size)
+		vid = self.__distributed_2D_conv_block(vid, pool=2, num_filters=160, kernel_size=self.kernel_size)
+		vid = self.__distributed_2D_conv_block(vid, pool=2, num_filters=160, kernel_size=self.kernel_size)
+		vid = self.__distributed_2D_conv_block(vid, pool=2, num_filters=320, kernel_size=self.kernel_size)
 
 		tiled_vid = TimeDistributed(Flatten())(vid)
 		tiled_vid = UpSampling1D(AUDIO_TO_VIDEO_RATIO)(tiled_vid)
 
 		# first audio conv - not res
-		audio = self.__conv_block(input_spec)
+		audio = self.__conv_block(input_spec, self.num_filters, self.kernel_size)
 
 		# first delta - not res
 		x = Concatenate()([tiled_vid, audio])
-		delta = self.__conv_block(x)
+		delta = self.__conv_block(x, self.num_filters, self.kernel_size)
 
 		# res blocks
 		for i in range(self.num_layers):
@@ -96,7 +97,7 @@ class SpeechEnhancementNetwork(object):
 		tiled_vid = UpSampling1D(AUDIO_TO_VIDEO_RATIO)(tiled_vid)
 
 		x = Concatenate()([tiled_vid, audio, delta, input_spec])
-		delta = Add()([self.__conv_block(x), delta])
+		delta = self.__conv_block(x, 80, 5)
 
 		out = Add()([delta, input_spec])
 
@@ -125,7 +126,7 @@ class SpeechEnhancementNetwork(object):
 		lr_decay = ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=5, min_lr=0, verbose=1)
 		early_stopping = EarlyStopping(monitor='val_loss', min_delta=0.01, patience=50, verbose=1)
 
-		dp = DataProcessor(25, 16000, slice_len_in_ms=200, video_shape=(128, 128))
+		dp = DataProcessor(25, 16000, slice_len_in_ms=400, video_shape=(128, 128))
 		train_data_generator = DataGenerator(train_speech_entries,
 											 train_noise_files,
 											 dp,
@@ -154,7 +155,7 @@ class SpeechEnhancementNetwork(object):
 									   epochs=1000,
 									   callbacks=[SaveModel, lr_decay, early_stopping],
 									   validation_data=val_data_generator,
-									   validation_steps=10,
+									   validation_steps=100,
 									   use_multiprocessing=True,
 									   max_queue_size=20,
 									   workers=self.gpus,
@@ -246,10 +247,10 @@ class DataGenerator(Sequence):
 
 if __name__ == '__main__':
 	# net = SpeechEnhancementNetwork.build((80, None), (128, 128, None), num_gpus=0)
-	net = SpeechEnhancementNetwork(vid_shape=(None, 224, 224),
+	net = SpeechEnhancementNetwork(vid_shape=(None, 128, 128),
 								   spec_shape=(None, 80),
-								   num_filters=80,
-								   num_layers=10,
+								   num_filters=160,
+								   num_layers=3,
 								   kernel_size=5,
 								   num_gpus=1,
 								   model_cache_dir=None)

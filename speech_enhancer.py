@@ -19,9 +19,9 @@ def preprocess(args):
     assets = AssetManager(args.base_folder)
     assets.create_preprocessed_data_dir(args.data_name)
 
-    dataset_path = assets.get_data_set_dir(args.dataset)
+    dataset_path = assets.get_data_set_dir(args.dataset, group='test')
 
-    speaker_ids = list_speakers(args)
+    speaker_ids = list_speakers(args.speakers, args.ignored_speakers, dataset_dir=dataset_path)
 
     speech_entries, noise_file_paths = list_data(
         dataset_path, speaker_ids, args.noise_dirs, max_files=args.number_of_samples
@@ -53,25 +53,23 @@ def train(args):
     else:
         val_dataset_path = assets.get_data_set_dir(args.dataset_dir, group='val')
 
-
-    print 'train dataset: ', train_dataset_path
-    print 'val dataset: ', val_dataset_path
-
     print 'listing train speakers...'
     train_speaker_ids = list_speakers(args.train_speakers, args.train_ignored_speakers, train_dataset_path)
 
-    print 'listing val speakers...'
-    val_speaker_ids = list_speakers(args.val_speakers, args.val_ignored_speakers, val_dataset_path)
 
     print 'listing train data...'
-    # train_noise_dirs = assets.get_noise_dirs(args.noise_dirs, group='train')
     train_speech_entries, train_noise_file_paths = list_data(
         train_dataset_path, train_speaker_ids, args.noise_dirs, max_files=args.number_of_samples, shuffle=True
     )
 
+    print 'listing val speakers...'
+    val_speaker_ids = list_speakers(args.val_speakers, args.val_ignored_speakers, val_dataset_path)
+
     print 'listing val data...'
     if not args.val_noise_dirs:
         val_noise_dirs = [noise_dir.replace('train', 'val') for noise_dir in args.noise_dirs]
+    else:
+        val_noise_dirs = args.val_noise_dirs
 
     if args.number_of_samples:
         val_number_of_samples = args.number_of_samples / 10
@@ -82,10 +80,12 @@ def train(args):
         val_dataset_path, val_speaker_ids, val_noise_dirs, max_files=val_number_of_samples, shuffle=True
     )
 
+    print 'train dataset: ', train_dataset_path
     print 'num train speakers: ', len(train_speaker_ids)
     print 'num train clean files: ', len(train_speech_entries)
     print 'num train noise files: ', len(train_noise_file_paths)
 
+    print 'val dataset: ', val_dataset_path
     print 'num val speakers: ', len(val_speaker_ids)
     print 'num val clean files: ', len(val_speech_entries)
     print 'num val noise files: ', len(val_noise_file_paths)
@@ -93,9 +93,10 @@ def train(args):
     print 'building network...'
     network = SpeechEnhancementNetwork(spec_shape=(None, 80),
                                        vid_shape=(None, 128, 128),
-                                       num_filters=80,
-                                       kernel_size=5,
-                                       num_layers=15,
+                                       num_filters=160,
+                                       kernel_size=7,
+                                       num_layers=20,
+                                       model_cache_dir=assets.get_model_cache_path(args.model),
                                        num_gpus=args.gpus)
     network.build()
     network.train(train_speech_entries, train_noise_file_paths, val_speech_entries, val_noise_file_paths)
@@ -127,7 +128,9 @@ def predict(args):
     network = SpeechEnhancementNetwork.load(assets.get_model_cache_path(args.model))
 
     print 'predicting enhanced specs'
-    enhanced_specs = network.predict(np.swapaxes(mix_specs, 1, 2), np.rollaxis(vid, 3, 1))
+    print 'vid shape', vid.shape
+    print 'spec shape', mix_specs.shape
+    enhanced_specs = network.predict(np.swapaxes(mix_specs, 1, 2), vid)
     enhanced_specs = np.swapaxes(enhanced_specs, 1, 2)
 
     np.save('/cs/grad/asaph/testing/specs3.npy', enhanced_specs)

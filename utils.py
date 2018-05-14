@@ -43,8 +43,10 @@ class DataProcessor(object):
 		self.video_shape = video_shape
 
 	def preprocess_video(self, frames):
-		mouth_cropped_frames = crop_mouth(frames)
-		return mouth_cropped_frames
+		if self.video_shape is not None:
+			frames = np.stack([imresize(frames[i], self.video_shape) for i in range(frames.shape[0])])
+
+		return frames
 
 	def get_mag_phase(self, audio_data):
 		mag, phase = lb.magphase(lb.stft(audio_data.astype('f'), self.nfft_single_frame, self.hop))
@@ -97,36 +99,6 @@ class DataProcessor(object):
 		return video_samples, mixed_spectrograms, mixed_phases, source_spectrograms, source_phases
 
 
-	# def data_generator(self, speech_entries, noise_file_paths, shuffle_noise=False, batch_size=4, num_gpu=1):
-	# 	i = 0
-	# 	while True:
-	# 		print 'start of loop'
-	# 		for speech_entry in speech_entries:
-	# 			try:
-	# 				# sys.stderr.write('speech entry: ' + speech_entry.video_path)
-	# 				# print 'speech entry: ', speech_entry.video_path
-	# 				video_samples, mixed_spectrograms, mixed_phases, source_spectrograms, source_phases = self.generate_batch_from_sample(speech_entry,
-	# 																																	  noise_file_paths[i])
-	# 				i += 1
-	# 				if i == len(noise_file_paths):
-	# 					i = 0
-	# 					if shuffle_noise:
-	# 						random.shuffle(noise_file_paths)
-	#
-	# 				raw_batch_size = video_samples.shape[0]
-	# 				print 'raw_batch_size:', raw_batch_size
-	#
-	# 				for j in range(0, raw_batch_size, batch_size*num_gpu):
-	# 					vid = video_samples[j:j+batch_size]
-	# 					mix = mixed_spectrograms[j:j+batch_size]
-	# 					source = source_spectrograms[j:j+batch_size]
-	# 					print 'batch_size:', vid.shape[0]
-	# 					if vid.shape[0] == 0:
-	# 						continue
-	# 					yield ([vid, mix], [source])
-	# 			except Exception as e:
-	# 				continue
-
 
 	def preprocess_sample(self, speech_entry, noise_file_path):
 		print ('preprocessing %s, %s' % (speech_entry.audio_path, noise_file_path))
@@ -144,7 +116,7 @@ class DataProcessor(object):
 												   source_waveform), metadata
 
 	def truncate_sample_to_same_length(self, video, mixed_spec, mixed_phase, source_spec, source_phase, source_waveform):
-		lenghts = [video.shape[-1] * self.spec_bins_per_video_frame, mixed_spec.shape[-1], mixed_phase.shape[-1], source_spec.shape[-1],
+		lenghts = [video.shape[0] * self.spec_bins_per_video_frame, mixed_spec.shape[-1], mixed_phase.shape[-1], source_spec.shape[-1],
 				   source_phase.shape[-1]]
 
 		min_audio_frames = min(lenghts)
@@ -234,11 +206,12 @@ def preprocess_data(speech_entries, noise_file_paths, num_cpus):
 	with VideoFileReader(speech_entries[0].video_path) as reader:
 		fps = reader.get_frame_rate()
 	sr = AudioSignal.from_wav_file(speech_entries[0].audio_path).get_sample_rate()
-	data_processor = DataProcessor(fps, sr)
+	data_processor = DataProcessor(fps, sr, video_shape=(128, 128))
 
 	samples = zip(speech_entries, noise_file_paths)
 	thread_pool = multiprocess.Pool(num_cpus)
 	preprocessed = thread_pool.map(data_processor.try_preprocess_sample, samples)
+	# preprocessed = map(data_processor.try_preprocess_sample, samples)
 	preprocessed = [p for p in preprocessed if p is not None]
 
 	processed_samples, metadatas = zip(*preprocessed)
