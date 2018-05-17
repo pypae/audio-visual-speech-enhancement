@@ -72,7 +72,7 @@ def train(args):
         val_noise_dirs = args.val_noise_dirs
 
     if args.number_of_samples:
-        val_number_of_samples = args.number_of_samples / 10
+        val_number_of_samples = args.number_of_samples
     else:
         val_number_of_samples = None
 
@@ -95,7 +95,7 @@ def train(args):
                                        vid_shape=(None, 128, 128),
                                        num_filters=160,
                                        kernel_size=7,
-                                       num_layers=20,
+                                       num_layers=30,
                                        model_cache_dir=assets.get_model_cache_path(args.model),
                                        num_gpus=args.gpus)
     network.build()

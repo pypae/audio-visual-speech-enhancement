@@ -35,8 +35,8 @@ class SpeechEnhancementNetwork(object):
 		# vid = self.__distributed_2D_conv_block(prev_vid, pool)
 		vid = prev_vid
 
-		tiled_vid = TimeDistributed(Flatten())(vid)
-		tiled_vid = UpSampling1D(AUDIO_TO_VIDEO_RATIO)(tiled_vid)
+		# tiled_vid = TimeDistributed(Flatten())(vid)
+		tiled_vid = UpSampling1D(AUDIO_TO_VIDEO_RATIO)(vid)
 
 		audio = Add()([self.__conv_block(prev_audio, self.num_filters, 5), prev_audio])
 
@@ -79,8 +79,11 @@ class SpeechEnhancementNetwork(object):
 		vid = self.__distributed_2D_conv_block(vid, pool=2, num_filters=160, kernel_size=self.kernel_size)
 		vid = self.__distributed_2D_conv_block(vid, pool=2, num_filters=320, kernel_size=self.kernel_size)
 
-		tiled_vid = TimeDistributed(Flatten())(vid)
-		tiled_vid = UpSampling1D(AUDIO_TO_VIDEO_RATIO)(tiled_vid)
+		vid = TimeDistributed(Flatten())(vid)
+		vid = TimeDistributed(Dense(320))(vid)
+		vid = TimeDistributed(Dense(320))(vid)
+
+		tiled_vid = UpSampling1D(AUDIO_TO_VIDEO_RATIO)(vid)
 
 		# first audio conv - not res
 		audio = self.__conv_block(input_spec, self.num_filters, self.kernel_size)
@@ -97,7 +100,10 @@ class SpeechEnhancementNetwork(object):
 		tiled_vid = UpSampling1D(AUDIO_TO_VIDEO_RATIO)(tiled_vid)
 
 		x = Concatenate()([tiled_vid, audio, delta, input_spec])
-		delta = self.__conv_block(x, 80, 5)
+		# delta = self.__conv_block(x, 80, 5)
+		delta = TimeDistributed(Dense(256))(x)
+		delta = TimeDistributed(Dense(256))(delta)
+		delta = TimeDistributed(Dense(80))(delta)
 
 		out = Add()([delta, input_spec])
 
@@ -151,7 +157,7 @@ class SpeechEnhancementNetwork(object):
 		print 'num gpus: ', self.gpus
 		print 'starting fit...'
 		self.__fit_model.fit_generator(train_data_generator,
-									   steps_per_epoch=500,
+									   steps_per_epoch=1000,
 									   epochs=1000,
 									   callbacks=[SaveModel, lr_decay, early_stopping],
 									   validation_data=val_data_generator,

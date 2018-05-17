@@ -189,7 +189,7 @@ def mix_source_noise(source_path, noies_path):
 		noise = AudioSignal.concat([noise, noise])
 
 	noise.truncate(source.get_number_of_samples())
-	noise.amplify(source, 0)
+	noise.amplify(source, 2)
 
 	return AudioMixer().mix([source, noise])
 
