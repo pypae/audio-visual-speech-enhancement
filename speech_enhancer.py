@@ -91,11 +91,11 @@ def train(args):
     print 'num val noise files: ', len(val_noise_file_paths)
 
     print 'building network...'
-    network = SpeechEnhancementNetwork(spec_shape=(None, 80),
+    network = SpeechEnhancementNetwork(spec_shape=(None, 321),
                                        vid_shape=(None, 128, 128),
                                        num_filters=160,
                                        kernel_size=7,
-                                       num_layers=30,
+                                       num_layers=20,
                                        model_cache_dir=assets.get_model_cache_path(args.model),
                                        num_gpus=args.gpus)
     network.build()

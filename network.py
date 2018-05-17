@@ -69,6 +69,8 @@ class SpeechEnhancementNetwork(object):
 		input_spec = Input(self.spec_shape)
 		input_vid = Input(self.vid_shape)
 
+		log_spec = Lambda(lambda a: K.log(a))(input_spec)
+
 		# video encoder
 		vid = Lambda(lambda a: K.expand_dims(a, -1))(input_vid)
 		vid = self.__distributed_2D_conv_block(vid, pool=2, num_filters=40, kernel_size=self.kernel_size)
@@ -86,26 +88,28 @@ class SpeechEnhancementNetwork(object):
 		tiled_vid = UpSampling1D(AUDIO_TO_VIDEO_RATIO)(vid)
 
 		# first audio conv - not res
-		audio = self.__conv_block(input_spec, self.num_filters, self.kernel_size)
+		audio = self.__conv_block(log_spec, self.num_filters, self.kernel_size)
 
 		# first delta - not res
 		x = Concatenate()([tiled_vid, audio])
-		delta = self.__conv_block(x, self.num_filters, self.kernel_size)
+		mask = self.__conv_block(x, self.num_filters, self.kernel_size)
 
 		# res blocks
 		for i in range(self.num_layers):
-			vid, audio, delta = self.__build_AV_res_block(vid, audio, delta, input_spec, pool=0)
+			vid, audio, mask = self.__build_AV_res_block(vid, audio, mask, log_spec, pool=0)
 
 		tiled_vid = TimeDistributed(Flatten())(vid)
 		tiled_vid = UpSampling1D(AUDIO_TO_VIDEO_RATIO)(tiled_vid)
 
-		x = Concatenate()([tiled_vid, audio, delta, input_spec])
+		x = Concatenate()([tiled_vid, audio, mask, log_spec])
 		# delta = self.__conv_block(x, 80, 5)
-		delta = TimeDistributed(Dense(256))(x)
-		delta = TimeDistributed(Dense(256))(delta)
-		delta = TimeDistributed(Dense(80))(delta)
+		mask = TimeDistributed(Dense(256))(x)
+		mask = TimeDistributed(Dense(256))(mask)
+		mask = TimeDistributed(Dense(321))(mask)
 
-		out = Add()([delta, input_spec])
+		mask = Activation('sigmoid')(mask)
+
+		out = Multiply()([mask, input_spec])
 
 		run_opts = tf.RunOptions(report_tensor_allocations_upon_oom=True)
 
@@ -132,7 +136,7 @@ class SpeechEnhancementNetwork(object):
 		lr_decay = ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=5, min_lr=0, verbose=1)
 		early_stopping = EarlyStopping(monitor='val_loss', min_delta=0.01, patience=50, verbose=1)
 
-		dp = DataProcessor(25, 16000, slice_len_in_ms=400, video_shape=(128, 128))
+		dp = DataProcessor(25, 16000, slice_len_in_ms=400, video_shape=(128, 128), mel=False, db=False)
 		train_data_generator = DataGenerator(train_speech_entries,
 											 train_noise_files,
 											 dp,
@@ -254,7 +258,7 @@ class DataGenerator(Sequence):
 if __name__ == '__main__':
 	# net = SpeechEnhancementNetwork.build((80, None), (128, 128, None), num_gpus=0)
 	net = SpeechEnhancementNetwork(vid_shape=(None, 128, 128),
-								   spec_shape=(None, 80),
+								   spec_shape=(None, 321),
 								   num_filters=160,
 								   num_layers=3,
 								   kernel_size=5,
