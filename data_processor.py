@@ -76,7 +76,7 @@ def reconstruct_speech_signal(mixed_signal, speech_spectrograms, video_frame_rat
 
 def signal_to_spectrogram(audio_signal, n_fft, hop_length, mel=True, db=True):
 	signal = audio_signal.get_data(channel_index=0)
-	D = librosa.core.stft(signal, n_fft=n_fft, hop_length=hop_length)
+	D = librosa.core.stft(signal.astype(np.float64), n_fft=n_fft, hop_length=hop_length)
 	magnitude, phase = librosa.core.magphase(D)
 
 	if mel:

@@ -15,6 +15,7 @@ Implementation of the method described in the paper: [Visual Speech Enhancement]
 * numpy >= 1.12.1
 * dlib >= 19.4.0
 * opencv >= 3.2.0
+* librosa >= 0.5.1
 
 ### Getting started
 Given an audio-visual dataset of the directory structure:
