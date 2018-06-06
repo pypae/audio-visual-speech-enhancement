@@ -94,8 +94,8 @@ def train(args):
     network = SpeechEnhancementNetwork(spec_shape=(None, 80),
                                        vid_shape=(None, 128, 128),
                                        num_filters=160,
-                                       kernel_size=7,
-                                       num_layers=30,
+                                       kernel_size=5,
+                                       num_layers=20,
                                        model_cache_dir=assets.get_model_cache_path(args.model),
                                        num_gpus=args.gpus)
     network.build()
