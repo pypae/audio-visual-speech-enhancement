@@ -2,7 +2,7 @@
 import numpy as np
 import matplotlib.pyplot as pl
 from scipy.signal import *
-from mediaio.audio_io import AudioSignal
+from mediaio.audio_io import AudioSignal, VideoFileReader,
 import librosa as lb
 
 
