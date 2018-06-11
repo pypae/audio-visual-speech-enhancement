@@ -72,9 +72,12 @@ class DataProcessor(object):
 		return self.get_mag_phase(source.get_data())
 
 	def generate_batch_from_sample(self, speech_entry, noise_file_path):
-		frames = get_frames(speech_entry.video_path)
-		if self.video_shape is not None:
-			frames = np.stack([imresize(frames[i], self.video_shape) for i in range(frames.shape[0])])
+		# frames = get_frames(speech_entry.video_path)
+		# if self.video_shape is not None:
+		# 	frames = np.stack([imresize(frames[i], self.video_shape) for i in range(frames.shape[0])])
+		embedding_path = speech_entry.video_path.replace('video', 'embedding')
+		embedding_path = os.path.splitext(embedding_path)[0] + '.npy'
+		frames = np.load(embedding_path)
 
 		video_slices_list = split_to_equal_length(frames, axis=0, slice_len=self.vid_frames_per_slice)
 

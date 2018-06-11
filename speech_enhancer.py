@@ -92,7 +92,7 @@ def train(args):
 
     print 'building network...'
     network = SpeechEnhancementNetwork(spec_shape=(None, 80),
-                                       vid_shape=(None, 128, 128),
+                                       vid_shape=(None, 512),
                                        num_filters=160,
                                        kernel_size=5,
                                        num_layers=20,

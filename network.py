@@ -69,19 +69,19 @@ class SpeechEnhancementNetwork(object):
 		input_spec = Input(self.spec_shape)
 		input_vid = Input(self.vid_shape)
 
-		# video encoder
-		vid = Lambda(lambda a: K.expand_dims(a, -1))(input_vid)
-		vid = self.__distributed_2D_conv_block(vid, pool=2, num_filters=40, kernel_size=self.kernel_size)
-		vid = self.__distributed_2D_conv_block(vid, pool=2, num_filters=40, kernel_size=self.kernel_size)
-		vid = self.__distributed_2D_conv_block(vid, pool=2, num_filters=80, kernel_size=self.kernel_size)
-		vid = self.__distributed_2D_conv_block(vid, pool=2, num_filters=80, kernel_size=self.kernel_size)
-		vid = self.__distributed_2D_conv_block(vid, pool=2, num_filters=160, kernel_size=self.kernel_size)
-		vid = self.__distributed_2D_conv_block(vid, pool=2, num_filters=160, kernel_size=self.kernel_size)
-		vid = self.__distributed_2D_conv_block(vid, pool=2, num_filters=320, kernel_size=self.kernel_size)
+		# # video encoder
+		# vid = Lambda(lambda a: K.expand_dims(a, -1))(input_vid)
+		# vid = self.__distributed_2D_conv_block(vid, pool=2, num_filters=40, kernel_size=self.kernel_size)
+		# vid = self.__distributed_2D_conv_block(vid, pool=2, num_filters=40, kernel_size=self.kernel_size)
+		# vid = self.__distributed_2D_conv_block(vid, pool=2, num_filters=80, kernel_size=self.kernel_size)
+		# vid = self.__distributed_2D_conv_block(vid, pool=2, num_filters=80, kernel_size=self.kernel_size)
+		# vid = self.__distributed_2D_conv_block(vid, pool=2, num_filters=160, kernel_size=self.kernel_size)
+		# vid = self.__distributed_2D_conv_block(vid, pool=2, num_filters=160, kernel_size=self.kernel_size)
+		# vid = self.__distributed_2D_conv_block(vid, pool=2, num_filters=320, kernel_size=self.kernel_size)
 
-		vid = TimeDistributed(Flatten())(vid)
+		vid = TimeDistributed(Dense(320))(input_vid)
 		vid = TimeDistributed(Dense(320))(vid)
-		vid = TimeDistributed(Dense(320))(vid)
+		vid = TimeDistributed(Dense(160))(vid)
 
 		tiled_vid = UpSampling1D(AUDIO_TO_VIDEO_RATIO)(vid)
 
@@ -132,7 +132,7 @@ class SpeechEnhancementNetwork(object):
 		lr_decay = ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=5, min_lr=0, verbose=1)
 		early_stopping = EarlyStopping(monitor='val_loss', min_delta=0.01, patience=50, verbose=1)
 
-		dp = DataProcessor(25, 16000, slice_len_in_ms=400, video_shape=(128, 128))
+		dp = DataProcessor(25, 16000, slice_len_in_ms=400)
 		train_data_generator = DataGenerator(train_speech_entries,
 											 train_noise_files,
 											 dp,
