@@ -147,13 +147,6 @@ class SpeechEnhancementNetwork(object):
 										   batch_size=BATCH_SIZE,
 										   num_gpu=self.gpus)
 
-
-
-		# config = tf.ConfigProto()
-		# config.gpu_options.per_process_gpu_memory_fraction = 0.8
-		# # config.gpu_options.allow_growth = True
-		# K.set_session(tf.Session(config=config))
-
 		print 'num gpus: ', self.gpus
 		print 'starting fit...'
 		self.__fit_model.fit_generator(train_data_generator,
@@ -214,7 +207,6 @@ class DataGenerator(Sequence):
 	def __getitem__(self, index):
 		if len(self.cache) != 0:
 			tup = self.cache.pop()
-			# print 'batch size:', tup[0][0].shape[0]
 			return tup
 
 		if self.speech_index >= len(self.speech_entries):
@@ -242,7 +234,6 @@ class DataGenerator(Sequence):
 				self.cache.append(([vid, mix], [source]))
 
 			tup = self.cache.pop()
-			# print 'batch size:', tup[0][0].shape[0]
 			return tup
 		except Exception as e:
 			pass
@@ -252,7 +243,6 @@ class DataGenerator(Sequence):
 
 
 if __name__ == '__main__':
-	# net = SpeechEnhancementNetwork.build((80, None), (128, 128, None), num_gpus=0)
 	net = SpeechEnhancementNetwork(vid_shape=(None, 128, 128),
 								   spec_shape=(None, 80),
 								   num_filters=160,

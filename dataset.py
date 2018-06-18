@@ -18,11 +18,6 @@ class AudioVisualDataset:
 
 		for speaker_id in speaker_ids:
 			speaker_dir = os.path.join(self._base_path, speaker_id)
-			# audio_paths = glob.glob(os.path.join(self._base_path, speaker_id, 'audio', '*.wav'))
-
-			# for audio_path in audio_paths:
-			# 	entry = AudioVisualEntry(speaker_id, audio_path, AudioVisualDataset.__audio_to_video_path(audio_path))
-			# 	entries.append(entry)
 			vid_dir = os.path.join(speaker_dir, self.vid_type)
 			for filename in os.listdir(vid_dir):
 				entries.append(AudioVisualEntry(speaker_id,

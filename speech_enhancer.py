@@ -13,7 +13,6 @@ from utils import *
 # pydevd.settrace('cooper-01', port=12345, stdoutToServer=True, stderrToServer=True)
 
 BASE_FOLDER = '/cs/labs/peleg/asaph/playground/avse' # todo: remove before releasing code
-SPLIT = 10
 
 def preprocess(args):
     assets = AssetManager(args.base_folder)
@@ -24,7 +23,7 @@ def preprocess(args):
     speaker_ids = list_speakers(args.speakers, args.ignored_speakers, dataset_dir=dataset_path)
 
     speech_entries, noise_file_paths = list_data(
-        dataset_path, speaker_ids, args.noise_dirs, max_files=args.number_of_samples
+        dataset_path, speaker_ids, args.noise_dirs, max_files=args.number_of_samples, vid_type=args.vid_type
     )
 
     video_samples, mixed_spectrograms, mixed_phases, source_spectrograms, source_phases, source_waveforms, metadatas = preprocess_data(
@@ -59,7 +58,7 @@ def train(args):
 
     print 'listing train data...'
     train_speech_entries, train_noise_file_paths = list_data(
-        train_dataset_path, train_speaker_ids, args.noise_dirs, max_files=args.number_of_samples, shuffle=True
+        train_dataset_path, train_speaker_ids, args.noise_dirs, max_files=args.number_of_samples, shuffle=True, vid_type=args.vid_type
     )
 
     print 'listing val speakers...'
@@ -77,7 +76,7 @@ def train(args):
         val_number_of_samples = None
 
     val_speech_entries, val_noise_file_paths = list_data(
-        val_dataset_path, val_speaker_ids, val_noise_dirs, max_files=val_number_of_samples, shuffle=True
+        val_dataset_path, val_speaker_ids, val_noise_dirs, max_files=val_number_of_samples, shuffle=True, vid_type=args.vid_type
     )
 
     print 'train dataset: ', train_dataset_path
@@ -101,8 +100,6 @@ def train(args):
     network.build()
     network.train(train_speech_entries, train_noise_file_paths, val_speech_entries, val_noise_file_paths)
 
-    # network.save(model_cache_dir)
-
 
 def predict(args):
     assets = AssetManager(args.base_folder)
@@ -113,8 +110,6 @@ def predict(args):
 
     vid, mix_specs, source_specs, source_phases, mixed_phases, source_waveforms = load_preprocessed_samples(testset_path,
                                                                                                       max_samples=args.number_of_samples)
-
-    vid = np.rollaxis(vid, 3, 1)
 
     with open(metadata_path, 'rb') as metadata_fd:
         print 'loading metadata...'
@@ -225,9 +220,9 @@ class PredictionStorage(object):
 
         return sample_prediction_dir
 
-def list_speakers(speakers, ignored_speakers, dataset_dir):
+def list_speakers(speakers, ignored_speakers, dataset_dir, vid_type='video'):
     if speakers is None:
-        dataset = AudioVisualDataset(dataset_dir)
+        dataset = AudioVisualDataset(dataset_dir, vid_type)
         speaker_ids = dataset.list_speakers()
     else:
         speaker_ids = speakers
@@ -240,15 +235,11 @@ def list_speakers(speakers, ignored_speakers, dataset_dir):
 
 
 def list_data(dataset_dir, speaker_ids, noise_dirs, max_files=None, shuffle=True, vid_type='video'):
-    # if max_files is None:
-    # 	max_files = 1000
     speech_dataset = AudioVisualDataset(dataset_dir, vid_type)
     speech_subset = speech_dataset.subset(speaker_ids, max_files, shuffle)
 
     noise_dataset = AudioDataset(noise_dirs)
     noise_file_paths = noise_dataset.subset(shuffle=shuffle)
-
-    # n_files = min(len(speech_subset), len(noise_file_paths))
 
     return speech_subset, noise_file_paths
 
@@ -405,14 +396,6 @@ def main():
     train_gen_parser.add_argument('-ns', '--number_of_samples', type=int)
     train_gen_parser.add_argument('-g', '--gpus', type=int, default=1)
     train_gen_parser.set_defaults(func=train)
-
-    # train_parser = action_parsers.add_parser('train')
-    # train_parser.add_argument('-mn', '--model', type=str, required=True)
-    # train_parser.add_argument('-tdn', '--train_data_names', nargs='+', type=str, required=True)
-    # train_parser.add_argument('-vdn', '--val_data_names', nargs='+', type=str, required=True)
-    # train_parser.add_argument('-ns', '--number_of_samples', type=int)
-    # train_parser.add_argument('-g', '--gpus', type=int, default=1)
-    # train_parser.set_defaults(func=train)
 
     predict_parser = action_parsers.add_parser('predict')
     predict_parser.add_argument('-mn', '--model', type=str, required=True)

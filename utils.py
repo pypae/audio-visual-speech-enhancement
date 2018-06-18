@@ -19,7 +19,7 @@ GRIF_LIM_ITERS = 100
 class DataProcessor(object):
 
 	def __init__(self, video_fps, audio_sr, db=True, mel=True, audio_bins_per_video_frame=4, slice_len_in_ms=1000, video_shape=None, truncate=True,
-				 split_to_batch=False):
+				 split_to_batch=False, verbose=False):
 		self.video_fps = video_fps
 		self.audio_sr = audio_sr
 
@@ -44,6 +44,7 @@ class DataProcessor(object):
 		self.video_shape = video_shape
 		self.truncate = truncate
 		self.split_to_batch = split_to_batch
+		self.verbose = verbose
 
 	def preprocess_video(self, frames):
 		if self.video_shape is not None:
@@ -62,9 +63,6 @@ class DataProcessor(object):
 
 		return mag, phase
 
-	# def get_normalization(self, signal):
-	# 	self.mean, self.std	= signal.normalize()
-
 	def preprocess_inputs(self, frames, mixed_signal):
 		video_sample = self.preprocess_video(frames)
 		mixed_spectrogram, mixed_phase = self.get_mag_phase(mixed_signal.get_data())
@@ -74,38 +72,9 @@ class DataProcessor(object):
 	def preprocess_source(self, source):
 		return self.get_mag_phase(source.get_data())
 
-	# def generate_batch_from_sample(self, speech_entry, noise_file_path):
-	# 	lips_path = speech_entry.video_path.replace('video', 'lips')
-	# 	# frames = get_frames(speech_entry.video_path)
-	# 	frames = get_frames(lips_path)
-	# 	if self.video_shape is not None:
-	# 		frames = np.stack([imresize(frames[i], self.video_shape) for i in range(frames.shape[0])])
-    #
-	# 	video_slices_list = split_to_equal_length(frames, axis=0, slice_len=self.vid_frames_per_slice)
-    #
-	# 	mixed_signal = mix_source_noise(speech_entry.audio_path, noise_file_path)
-	# 	mixed_spectrogram, mixed_phase = self.get_mag_phase(mixed_signal.get_data())
-	# 	mixed_specs_list = split_to_equal_length(mixed_spectrogram.T, axis=0, slice_len=self.spec_frames_per_slice)
-	# 	mixed_phases_list = split_to_equal_length(mixed_phase.T, axis=0, slice_len=self.spec_frames_per_slice)
-    #
-	# 	source_signal = AudioSignal.from_wav_file(speech_entry.audio_path)
-	# 	source_spectrogram, source_phase = self.preprocess_source(source_signal)
-	# 	source_specs_list = split_to_equal_length(source_spectrogram.T, axis=0, slice_len=self.spec_frames_per_slice)
-	# 	source_phases_list = split_to_equal_length(source_phase.T, axis=0, slice_len=self.spec_frames_per_slice)
-    #
-	# 	min_len = min(len(video_slices_list), len(mixed_specs_list), len(source_specs_list))
-    #
-	# 	video_samples = np.stack(video_slices_list[:min_len])
-	# 	mixed_spectrograms = np.stack(mixed_specs_list[:min_len])
-	# 	mixed_phases = np.stack(mixed_phases_list[:min_len])
-	# 	source_spectrograms = np.stack(source_specs_list[:min_len])
-	# 	source_phases = np.stack(source_phases_list[:min_len])
-    #
-	# 	return video_samples, mixed_spectrograms, mixed_phases, source_spectrograms, source_phases
-
-
 	def preprocess_sample(self, speech_entry, noise_file_path):
-		print ('preprocessing %s, %s' % (speech_entry.audio_path, noise_file_path))
+		if self.verbose:
+			print ('preprocessing %s, %s' % (speech_entry.audio_path, noise_file_path))
 		metadata = MetaData(speech_entry.speaker_id, speech_entry.video_path, speech_entry.audio_path, noise_file_path, self.video_fps, self.audio_sr)
 
 		frames = get_frames(speech_entry.video_path)
@@ -173,8 +142,6 @@ class DataProcessor(object):
 		else:
 			data = lb.istft(spectrogram * phase, self.hop)
 
-		# data *= self.std
-		# data += self.mean
 		data = data.astype('int16')
 		return AudioSignal(data, self.audio_sr)
 
@@ -231,12 +198,12 @@ def preprocess_data(speech_entries, noise_file_paths, num_cpus):
 	with VideoFileReader(speech_entries[0].video_path) as reader:
 		fps = reader.get_frame_rate()
 	sr = AudioSignal.from_wav_file(speech_entries[0].audio_path).get_sample_rate()
-	data_processor = DataProcessor(fps, sr, video_shape=(128, 128))
+	data_processor = DataProcessor(fps, sr, video_shape=(128, 128), verbose=True)
 
 	samples = zip(speech_entries, noise_file_paths)
 	thread_pool = multiprocess.Pool(num_cpus)
 	preprocessed = thread_pool.map(data_processor.try_preprocess_sample, samples)
-	# preprocessed = map(data_processor.try_preprocess_sample, samples)
+	# preprocessed = map(data_processor.try_preprocess_sample, samples) # for debugging purposes
 	preprocessed = [p for p in preprocessed if p is not None]
 
 	video_samples, mixed_spectrograms, mixed_phases, source_spectrogarms, source_phases, source_waveforms, metadatas = zip(*preprocessed)
