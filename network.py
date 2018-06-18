@@ -132,7 +132,7 @@ class SpeechEnhancementNetwork(object):
 		lr_decay = ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=5, min_lr=0, verbose=1)
 		early_stopping = EarlyStopping(monitor='val_loss', min_delta=0.01, patience=50, verbose=1)
 
-		dp = DataProcessor(25, 16000, slice_len_in_ms=400, video_shape=(128, 128))
+		dp = DataProcessor(25, 16000, slice_len_in_ms=400, split_to_batch=True)
 		train_data_generator = DataGenerator(train_speech_entries,
 											 train_noise_files,
 											 dp,
@@ -226,7 +226,7 @@ class DataGenerator(Sequence):
 
 		try:
 			video_samples, mixed_spectrograms, mixed_phases, source_spectrograms, source_phases = \
-				self.dp.generate_batch_from_sample(self.speech_entries[index], self.noise_file_paths[self.noise_index])
+				self.dp.preprocess_sample(self.speech_entries[index], self.noise_file_paths[self.noise_index])
 
 			self.noise_index += 1
 			self.speech_index += 1

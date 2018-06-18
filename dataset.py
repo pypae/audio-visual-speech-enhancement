@@ -9,8 +9,9 @@ AudioVisualEntry = namedtuple('AudioVisualEntry', ['speaker_id', 'audio_path', '
 
 class AudioVisualDataset:
 
-	def __init__(self, base_path):
+	def __init__(self, base_path, vid_type):
 		self._base_path = base_path
+		self.vid_type = vid_type
 
 	def subset(self, speaker_ids, max_files=None, shuffle=False):
 		entries = []
@@ -22,11 +23,11 @@ class AudioVisualDataset:
 			# for audio_path in audio_paths:
 			# 	entry = AudioVisualEntry(speaker_id, audio_path, AudioVisualDataset.__audio_to_video_path(audio_path))
 			# 	entries.append(entry)
-			vid_dir = os.path.join(speaker_dir, 'video')
+			vid_dir = os.path.join(speaker_dir, self.vid_type)
 			for filename in os.listdir(vid_dir):
 				entries.append(AudioVisualEntry(speaker_id,
 												os.path.join(speaker_dir, 'audio', os.path.splitext(filename)[0] + '.wav'),
-												os.path.join(speaker_dir, 'video', filename)))
+												os.path.join(speaker_dir, self.vid_type, filename)))
 
 		if shuffle:
 			random.shuffle(entries)

@@ -18,7 +18,8 @@ GRIF_LIM_ITERS = 100
 
 class DataProcessor(object):
 
-	def __init__(self, video_fps, audio_sr, db=True, mel=True, audio_bins_per_video_frame=4, slice_len_in_ms=1000, video_shape=None):
+	def __init__(self, video_fps, audio_sr, db=True, mel=True, audio_bins_per_video_frame=4, slice_len_in_ms=1000, video_shape=None, truncate=True,
+				 split_to_batch=False):
 		self.video_fps = video_fps
 		self.audio_sr = audio_sr
 
@@ -41,6 +42,8 @@ class DataProcessor(object):
 			self.invers_mel_filters = np.linalg.pinv(self.mel_filters)
 
 		self.video_shape = video_shape
+		self.truncate = truncate
+		self.split_to_batch = split_to_batch
 
 	def preprocess_video(self, frames):
 		if self.video_shape is not None:
@@ -71,33 +74,34 @@ class DataProcessor(object):
 	def preprocess_source(self, source):
 		return self.get_mag_phase(source.get_data())
 
-	def generate_batch_from_sample(self, speech_entry, noise_file_path):
-		frames = get_frames(speech_entry.video_path)
-		if self.video_shape is not None:
-			frames = np.stack([imresize(frames[i], self.video_shape) for i in range(frames.shape[0])])
-
-		video_slices_list = split_to_equal_length(frames, axis=0, slice_len=self.vid_frames_per_slice)
-
-		mixed_signal = mix_source_noise(speech_entry.audio_path, noise_file_path)
-		mixed_spectrogram, mixed_phase = self.get_mag_phase(mixed_signal.get_data())
-		mixed_specs_list = split_to_equal_length(mixed_spectrogram.T, axis=0, slice_len=self.spec_frames_per_slice)
-		mixed_phases_list = split_to_equal_length(mixed_phase.T, axis=0, slice_len=self.spec_frames_per_slice)
-
-		source_signal = AudioSignal.from_wav_file(speech_entry.audio_path)
-		source_spectrogram, source_phase = self.preprocess_source(source_signal)
-		source_specs_list = split_to_equal_length(source_spectrogram.T, axis=0, slice_len=self.spec_frames_per_slice)
-		source_phases_list = split_to_equal_length(source_phase.T, axis=0, slice_len=self.spec_frames_per_slice)
-
-		min_len = min(len(video_slices_list), len(mixed_specs_list), len(source_specs_list))
-
-		video_samples = np.stack(video_slices_list[:min_len])
-		mixed_spectrograms = np.stack(mixed_specs_list[:min_len])
-		mixed_phases = np.stack(mixed_phases_list[:min_len])
-		source_spectrograms = np.stack(source_specs_list[:min_len])
-		source_phases = np.stack(source_phases_list[:min_len])
-
-		return video_samples, mixed_spectrograms, mixed_phases, source_spectrograms, source_phases
-
+	# def generate_batch_from_sample(self, speech_entry, noise_file_path):
+	# 	lips_path = speech_entry.video_path.replace('video', 'lips')
+	# 	# frames = get_frames(speech_entry.video_path)
+	# 	frames = get_frames(lips_path)
+	# 	if self.video_shape is not None:
+	# 		frames = np.stack([imresize(frames[i], self.video_shape) for i in range(frames.shape[0])])
+    #
+	# 	video_slices_list = split_to_equal_length(frames, axis=0, slice_len=self.vid_frames_per_slice)
+    #
+	# 	mixed_signal = mix_source_noise(speech_entry.audio_path, noise_file_path)
+	# 	mixed_spectrogram, mixed_phase = self.get_mag_phase(mixed_signal.get_data())
+	# 	mixed_specs_list = split_to_equal_length(mixed_spectrogram.T, axis=0, slice_len=self.spec_frames_per_slice)
+	# 	mixed_phases_list = split_to_equal_length(mixed_phase.T, axis=0, slice_len=self.spec_frames_per_slice)
+    #
+	# 	source_signal = AudioSignal.from_wav_file(speech_entry.audio_path)
+	# 	source_spectrogram, source_phase = self.preprocess_source(source_signal)
+	# 	source_specs_list = split_to_equal_length(source_spectrogram.T, axis=0, slice_len=self.spec_frames_per_slice)
+	# 	source_phases_list = split_to_equal_length(source_phase.T, axis=0, slice_len=self.spec_frames_per_slice)
+    #
+	# 	min_len = min(len(video_slices_list), len(mixed_specs_list), len(source_specs_list))
+    #
+	# 	video_samples = np.stack(video_slices_list[:min_len])
+	# 	mixed_spectrograms = np.stack(mixed_specs_list[:min_len])
+	# 	mixed_phases = np.stack(mixed_phases_list[:min_len])
+	# 	source_spectrograms = np.stack(source_specs_list[:min_len])
+	# 	source_phases = np.stack(source_phases_list[:min_len])
+    #
+	# 	return video_samples, mixed_spectrograms, mixed_phases, source_spectrograms, source_phases
 
 
 	def preprocess_sample(self, speech_entry, noise_file_path):
@@ -110,10 +114,30 @@ class DataProcessor(object):
 		
 		video_sample, mixed_spectrogram, mixed_phase = self.preprocess_inputs(frames, mixed_signal)
 		source_spectrogram, source_phase = self.preprocess_source(source_signal)
-		source_waveform = source_signal.get_data().astype('f') 
+		source_waveform = source_signal.get_data().astype('f')
 
-		return self.truncate_sample_to_same_length(video_sample, mixed_spectrogram, mixed_phase, source_spectrogram, source_phase, 
-												   source_waveform), metadata
+		if self.truncate:
+			video_sample, mixed_spectrogram, mixed_phase, source_spectrogram,source_phase, source_waveform = self.truncate_sample_to_same_length(
+				video_sample, mixed_spectrogram, mixed_phase, source_spectrogram, source_phase, source_waveform)
+
+		if self.split_to_batch:
+			video_slices_list = split_to_equal_length(frames, axis=0, slice_len=self.vid_frames_per_slice)
+			mixed_specs_list = split_to_equal_length(mixed_spectrogram.T, axis=0, slice_len=self.spec_frames_per_slice)
+			mixed_phases_list = split_to_equal_length(mixed_phase.T, axis=0, slice_len=self.spec_frames_per_slice)
+			source_specs_list = split_to_equal_length(source_spectrogram.T, axis=0, slice_len=self.spec_frames_per_slice)
+			source_phases_list = split_to_equal_length(source_phase.T, axis=0, slice_len=self.spec_frames_per_slice)
+
+			min_len = min(len(video_slices_list), len(mixed_specs_list), len(source_specs_list))
+
+			video_samples = np.stack(video_slices_list[:min_len])
+			mixed_spectrograms = np.stack(mixed_specs_list[:min_len])
+			mixed_phases = np.stack(mixed_phases_list[:min_len])
+			source_spectrograms = np.stack(source_specs_list[:min_len])
+			source_phases = np.stack(source_phases_list[:min_len])
+
+			return video_samples, mixed_spectrograms, mixed_phases, source_spectrograms, source_phases
+
+		return video_sample, mixed_spectrogram, mixed_phase, source_spectrogram, source_phase, source_waveform, metadata
 
 	def truncate_sample_to_same_length(self, video, mixed_spec, mixed_phase, source_spec, source_phase, source_waveform):
 		lenghts = [video.shape[0] * self.spec_bins_per_video_frame, mixed_spec.shape[-1], mixed_phase.shape[-1], source_spec.shape[-1],
@@ -124,7 +148,8 @@ class DataProcessor(object):
 		# make sure it divides by audio_bins_per_frame
 		min_audio_frames = int(min_audio_frames / self.spec_bins_per_video_frame) * self.spec_bins_per_video_frame
 
-		return video[:, :, :min_audio_frames/self.spec_bins_per_video_frame], mixed_spec[:, :min_audio_frames], mixed_phase[:, :min_audio_frames], \
+		return video[:min_audio_frames/self.spec_bins_per_video_frame, :, :], mixed_spec[:, :min_audio_frames], mixed_phase[:,
+																												   :min_audio_frames], \
 			   source_spec[:,:min_audio_frames], source_phase[:, :min_audio_frames], source_waveform[:min_audio_frames * self.hop]
 
 

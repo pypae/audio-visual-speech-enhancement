@@ -7,10 +7,10 @@ from shutil import copy2
 from mediaio import ffmpeg
 from utils import *
 
-# sys.path.append('/usr/local/jetbrains/pycharm-2017.2.2/debug-eggs/pycharm-debug.egg')
-# import pydevd
-#
-# pydevd.settrace('cooper-01', port=12345, stdoutToServer=True, stderrToServer=True)
+sys.path.append('/usr/local/jetbrains/pycharm-2017.2.2/debug-eggs/pycharm-debug.egg')
+import pydevd
+
+pydevd.settrace('cooper-01', port=12345, stdoutToServer=True, stderrToServer=True)
 
 BASE_FOLDER = '/cs/labs/peleg/asaph/playground/avse' # todo: remove before releasing code
 SPLIT = 10
@@ -113,6 +113,8 @@ def predict(args):
 
     vid, mix_specs, source_specs, source_phases, mixed_phases, source_waveforms = load_preprocessed_samples(testset_path,
                                                                                                       max_samples=args.number_of_samples)
+
+    vid = np.rollaxis(vid, 3, 1)
 
     with open(metadata_path, 'rb') as metadata_fd:
         print 'loading metadata...'
@@ -237,10 +239,10 @@ def list_speakers(speakers, ignored_speakers, dataset_dir):
     return speaker_ids
 
 
-def list_data(dataset_dir, speaker_ids, noise_dirs, max_files=None, shuffle=True):
+def list_data(dataset_dir, speaker_ids, noise_dirs, max_files=None, shuffle=True, vid_type='video'):
     # if max_files is None:
     # 	max_files = 1000
-    speech_dataset = AudioVisualDataset(dataset_dir)
+    speech_dataset = AudioVisualDataset(dataset_dir, vid_type)
     speech_subset = speech_dataset.subset(speaker_ids, max_files, shuffle)
 
     noise_dataset = AudioDataset(noise_dirs)
@@ -381,6 +383,7 @@ def main():
     preprocess_parser = action_parsers.add_parser('preprocess')
     preprocess_parser.add_argument('-dn', '--data_name', type=str, required=True)
     preprocess_parser.add_argument('-ds', '--dataset', type=str, required=True)
+    preprocess_parser.add_argument('-vt', '--vid_type', type=str, required=True)
     preprocess_parser.add_argument('-s', '--speakers', nargs='+', type=str)
     preprocess_parser.add_argument('-is', '--ignored_speakers', nargs='+', type=str)
     preprocess_parser.add_argument('-n', '--noise_dirs', nargs='+', type=str, required=True)
@@ -390,6 +393,7 @@ def main():
 
     train_gen_parser = action_parsers.add_parser('train_gen')
     train_gen_parser.add_argument('-mn', '--model', type=str, required=True)
+    train_gen_parser.add_argument('-vt', '--vid_type', type=str, required=True)
     train_gen_parser.add_argument('-ds', '--dataset_dir', type=str, required=True)
     train_gen_parser.add_argument('-vds', '--val_dataset_dir', type=str)
     train_gen_parser.add_argument('-n', '--noise_dirs', nargs='+', type=str, required=True)
