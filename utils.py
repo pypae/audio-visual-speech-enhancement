@@ -239,8 +239,7 @@ def preprocess_data(speech_entries, noise_file_paths, num_cpus):
 	# preprocessed = map(data_processor.try_preprocess_sample, samples)
 	preprocessed = [p for p in preprocessed if p is not None]
 
-	processed_samples, metadatas = zip(*preprocessed)
-	video_samples, mixed_spectrograms, mixed_phases, source_spectrogarms, source_phases, source_waveforms = zip(*processed_samples)
+	video_samples, mixed_spectrograms, mixed_phases, source_spectrogarms, source_phases, source_waveforms, metadatas = zip(*preprocessed)
 
 	return (
 		np.stack(video_samples),

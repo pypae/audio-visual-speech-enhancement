@@ -7,10 +7,10 @@ from shutil import copy2
 from mediaio import ffmpeg
 from utils import *
 
-sys.path.append('/usr/local/jetbrains/pycharm-2017.2.2/debug-eggs/pycharm-debug.egg')
-import pydevd
-
-pydevd.settrace('cooper-01', port=12345, stdoutToServer=True, stderrToServer=True)
+# sys.path.append('/usr/local/jetbrains/pycharm-2017.2.2/debug-eggs/pycharm-debug.egg')
+# import pydevd
+#
+# pydevd.settrace('cooper-01', port=12345, stdoutToServer=True, stderrToServer=True)
 
 BASE_FOLDER = '/cs/labs/peleg/asaph/playground/avse' # todo: remove before releasing code
 SPLIT = 10
