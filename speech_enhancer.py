@@ -70,10 +70,11 @@ def train(args):
     else:
         val_noise_dirs = args.val_noise_dirs
 
-    if args.number_of_samples:
-        val_number_of_samples = args.number_of_samples
-    else:
-        val_number_of_samples = None
+    # if args.number_of_samples:
+    #     val_number_of_samples = args.number_of_samples
+    # else:
+    #     val_number_of_samples = None
+    val_number_of_samples = None
 
     val_speech_entries, val_noise_file_paths = list_data(
         val_dataset_path, val_speaker_ids, val_noise_dirs, max_files=val_number_of_samples, shuffle=True, vid_type=args.vid_type
