@@ -143,12 +143,12 @@ class SpeechEnhancementNetwork(object):
         self.__fit_model = fit_model
 
 
-    def train(self, train_speech_entries, train_noise_files, val_speech_entries, val_noise_files):
+    def train(self, train_speech_entries, train_noise_files, val_speech_entries, val_noise_files, overlap_factor):
         SaveModel = LambdaCallback(on_epoch_end=lambda epoch, logs: self.save_model())
         lr_decay = ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=5, min_lr=0, verbose=1)
         early_stopping = EarlyStopping(monitor='val_loss', min_delta=0.01, patience=50, verbose=1)
 
-        dp = DataProcessor(25, 16000, slice_len_in_ms=400, split_to_batch=True)
+        dp = DataProcessor(25, 16000, slice_len_in_ms=400, split_to_batch=True, overlap_factor=overlap_factor)
         train_data_generator = DataGenerator(train_speech_entries,
                                              train_noise_files,
                                              dp,

@@ -19,7 +19,7 @@ GRIF_LIM_ITERS = 100
 class DataProcessor(object):
 
 	def __init__(self, video_fps, audio_sr, db=True, mel=True, audio_bins_per_video_frame=4, slice_len_in_ms=1000, video_shape=None, truncate=True,
-				 split_to_batch=False, verbose=False):
+				 split_to_batch=False, verbose=False, overlap_factor=0.5):
 		self.video_fps = video_fps
 		self.audio_sr = audio_sr
 
@@ -30,6 +30,8 @@ class DataProcessor(object):
 
 		self.vid_frames_per_slice = int(self.video_fps * slice_len_in_ms / 1000.)
 		self.spec_frames_per_slice = int(self.vid_frames_per_slice * self.spec_bins_per_video_frame)
+		self.vid_overlap = int(overlap_factor * self.vid_frames_per_slice)
+		self.spec_overlap = self.vid_overlap * self.spec_bins_per_video_frame
 
 		self.nfft_single_frame = int(self.audio_sr / self.video_fps)
 		self.hop = int(self.nfft_single_frame / self.spec_bins_per_video_frame)
@@ -44,6 +46,7 @@ class DataProcessor(object):
 		self.video_shape = video_shape
 		self.truncate = truncate
 		self.split_to_batch = split_to_batch
+
 		self.verbose = verbose
 
 	def preprocess_video(self, frames):
@@ -90,11 +93,18 @@ class DataProcessor(object):
 				video_sample, mixed_spectrogram, mixed_phase, source_spectrogram, source_phase, source_waveform)
 
 		if self.split_to_batch:
-			video_slices_list = split_to_equal_length(frames, axis=0, slice_len=self.vid_frames_per_slice)
-			mixed_specs_list = split_to_equal_length(mixed_spectrogram.T, axis=0, slice_len=self.spec_frames_per_slice)
-			mixed_phases_list = split_to_equal_length(mixed_phase.T, axis=0, slice_len=self.spec_frames_per_slice)
-			source_specs_list = split_to_equal_length(source_spectrogram.T, axis=0, slice_len=self.spec_frames_per_slice)
-			source_phases_list = split_to_equal_length(source_phase.T, axis=0, slice_len=self.spec_frames_per_slice)
+			video_slices_list = []
+			mixed_specs_list = []
+			mixed_phases_list = []
+			source_specs_list = []
+			source_phases_list = []
+
+			for i in range(self.vid_frames_per_slice / self.vid_overlap):
+				video_slices_list += split_to_equal_length(frames[i * self.vid_overlap:], axis=0, slice_len=self.vid_frames_per_slice)
+				mixed_specs_list += split_to_equal_length(mixed_spectrogram.T[i * self.spec_overlap:], axis=0, slice_len=self.spec_frames_per_slice)
+				mixed_phases_list += split_to_equal_length(mixed_phase.T[i * self.spec_overlap:], axis=0, slice_len=self.spec_frames_per_slice)
+				source_specs_list += split_to_equal_length(source_spectrogram.T[i * self.spec_overlap:], axis=0, slice_len=self.spec_frames_per_slice)
+				source_phases_list += split_to_equal_length(source_phase.T[i * self.spec_overlap:], axis=0, slice_len=self.spec_frames_per_slice)
 
 			min_len = min(len(video_slices_list), len(mixed_specs_list), len(source_specs_list))
 
