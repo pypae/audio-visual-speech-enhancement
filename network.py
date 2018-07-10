@@ -1,6 +1,6 @@
 
 
-from tensorflow.python.keras import optimizers
+from tensorflow.python.keras import optimizers, regularizers
 from tensorflow.python.keras.layers import *
 from tensorflow.python.keras.callbacks import *
 from tensorflow.python.keras.models import Model, load_model
@@ -49,7 +49,7 @@ class SpeechEnhancementNetwork(object):
 
     @staticmethod
     def __conv_block(prev_x, num_filters, kernel_size, pool=0):
-        x = Conv1D(num_filters, kernel_size, padding='same')(prev_x)
+        x = Conv1D(num_filters, kernel_size, padding='same', kernel_regularizer=regularizers.l2(), bias_regularizer=regularizers.l2())(prev_x)
         x = BatchNormalization()(x)
         x = LeakyReLU()(x)
         if pool:
@@ -82,10 +82,12 @@ class SpeechEnhancementNetwork(object):
         x = self.__conv_block(x, 320, 5)
 
         x = TimeDistributed(Flatten())(x)
-        x = TimeDistributed(Dense(160))(x)
+
+        x = TimeDistributed(Dense(160, kernel_regularizer=regularizers.l2(), bias_regularizer=regularizers.l2()))(x)
         x = TimeDistributed(BatchNormalization())(x)
         x = TimeDistributed(LeakyReLU())(x)
         x = TimeDistributed(Dropout(0.5))(x)
+
         x = TimeDistributed(Dense(1))(x)
 
         x = TimeDistributed(Activation('sigmoid'))(x)
@@ -213,7 +215,7 @@ class SpeechEnhancementNetwork(object):
 
         SaveModel = LambdaCallback(on_epoch_end=lambda epoch, logs: self.save_model(model))
         lr_decay = ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=5, min_lr=0, verbose=1)
-        early_stopping = EarlyStopping(monitor='val_loss', min_delta=0.01, patience=50, verbose=1)
+        early_stopping = EarlyStopping(monitor='val_loss', min_delta=0.01, patience=250, verbose=1)
         self.__fit_discriminator.fit_generator(train_disc_generator,
                                                epochs=1000,
                                                callbacks=[SaveModel, lr_decay, early_stopping],
@@ -293,7 +295,7 @@ class DataGenerator(Sequence):
         self.noise_file_paths = noise_file_paths
         self.dp = data_processor
         self.shuffle_noise = shuffle_noise
-        self.batch_size = batch_size
+        self.batch_size = min(batch_size, SPEECH_ENTRY_IN_SEC * 1000 / self.dp.slice_len_in_ms) # todo: revert to batch_size after improving __get
         self.num_gpu = num_gpu
         self.noise_index = 0
         self.speech_index = 0
@@ -303,7 +305,7 @@ class DataGenerator(Sequence):
 
     def __len__(self):
         # number of batches (of size BATCH_SIZE) in the dataset
-        return len(self.speech_entries) * SPEECH_ENTRY_IN_SEC * 1000 / self.dp.slice_len_in_ms / self.batch_size
+        return len(self.speech_entries) * SPEECH_ENTRY_IN_SEC * 1000 / self.dp.slice_len_in_ms / (self.batch_size * self.num_gpu)
 
     def __getitem__(self, index):
         if len(self.cache) != 0:
