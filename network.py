@@ -236,7 +236,7 @@ class DataGenerator(Sequence):
 
         try:
             video_samples, mixed_spectrograms, mixed_phases, source_spectrograms, source_phases = \
-                self.dp.preprocess_sample(self.speech_entries[index], self.noise_file_paths[self.noise_index])
+                self.dp.preprocess_sample(self.speech_entries[index], self.noise_file_paths[self.noise_index])[:-1]
 
             self.noise_index += 1
             self.speech_index += 1

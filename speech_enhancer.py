@@ -26,8 +26,8 @@ def preprocess(args):
         dataset_path, speaker_ids, args.noise_dirs, max_files=args.number_of_samples, vid_type=args.vid_type
     )
 
-    video_samples, mixed_spectrograms, mixed_phases, source_spectrograms, source_phases, source_waveforms, metadatas = preprocess_data(
-        speech_entries, noise_file_paths, args.cpus)
+    video_samples, mixed_spectrograms, mixed_phases, source_spectrograms, source_phases, metadatas = preprocess_data(
+        speech_entries, noise_file_paths, args.cpus, args.overlap_factor)
 
     np.savez(
         assets.get_preprocessed_blob_data_path(args.data_name),
@@ -36,7 +36,7 @@ def preprocess(args):
         mixed_phases=mixed_phases,
         source_spectrograms=source_spectrograms,
         source_phases=source_phases,
-        source_waveforms=source_waveforms
+        # source_waveforms=source_waveforms
     )
 
     with open(assets.get_preprocessed_blob_metadata_path(args.data_name), 'wb') as preprocessed_fd:
@@ -379,6 +379,7 @@ def main():
     preprocess_parser.add_argument('-s', '--speakers', nargs='+', type=str)
     preprocess_parser.add_argument('-is', '--ignored_speakers', nargs='+', type=str)
     preprocess_parser.add_argument('-n', '--noise_dirs', nargs='+', type=str, required=True)
+    preprocess_parser.add_argument('-of', '--overlap_factor', type=float, default=0.)
     preprocess_parser.add_argument('-ns', '--number_of_samples', type=int)
     preprocess_parser.add_argument('-c', '--cpus', type=int, default=8)
     preprocess_parser.set_defaults(func=preprocess, which='preprocess')

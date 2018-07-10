@@ -19,7 +19,7 @@ GRIF_LIM_ITERS = 100
 class DataProcessor(object):
 
 	def __init__(self, video_fps, audio_sr, db=True, mel=True, audio_bins_per_video_frame=4, slice_len_in_ms=1000, video_shape=None, truncate=True,
-				 split_to_batch=False, verbose=False, overlap_factor=0.5):
+				 split_to_batch=False, verbose=False, overlap_factor=0):
 		self.video_fps = video_fps
 		self.audio_sr = audio_sr
 
@@ -114,9 +114,9 @@ class DataProcessor(object):
 			source_spectrograms = np.stack(source_specs_list[:min_len])
 			source_phases = np.stack(source_phases_list[:min_len])
 
-			return video_samples, mixed_spectrograms, mixed_phases, source_spectrograms, source_phases
+			return video_samples, mixed_spectrograms, mixed_phases, source_spectrograms, source_phases, metadata
 
-		return video_sample, mixed_spectrogram, mixed_phase, source_spectrogram, source_phase, source_waveform, metadata
+		return video_sample, mixed_spectrogram, mixed_phase, source_spectrogram, source_phase, metadata
 
 	def truncate_sample_to_same_length(self, video, mixed_spec, mixed_phase, source_spec, source_phase, source_waveform):
 		lenghts = [video.shape[0] * self.spec_bins_per_video_frame, mixed_spec.shape[-1], mixed_phase.shape[-1], source_spec.shape[-1],
@@ -168,8 +168,6 @@ class DataProcessor(object):
 		return lb.istft(spectrogram * phase, self.hop)
 
 
-
-
 def get_frames(video_path):
 	with VideoFileReader(video_path) as reader:
 		return reader.read_all_frames(convert_to_gray_scale=True)
@@ -204,11 +202,11 @@ def strip_audio(video_path):
 
 	return signal
 
-def preprocess_data(speech_entries, noise_file_paths, num_cpus):
+def preprocess_data(speech_entries, noise_file_paths, num_cpus, overlap_factor):
 	with VideoFileReader(speech_entries[0].video_path) as reader:
 		fps = reader.get_frame_rate()
 	sr = AudioSignal.from_wav_file(speech_entries[0].audio_path).get_sample_rate()
-	data_processor = DataProcessor(fps, sr, video_shape=(128, 128), verbose=True)
+	data_processor = DataProcessor(fps, sr, video_shape=(128, 128), verbose=True, overlap_factor=overlap_factor, split_to_batch=True)
 
 	samples = zip(speech_entries, noise_file_paths)
 	thread_pool = multiprocess.Pool(num_cpus)
@@ -216,7 +214,7 @@ def preprocess_data(speech_entries, noise_file_paths, num_cpus):
 	# preprocessed = map(data_processor.try_preprocess_sample, samples) # for debugging purposes
 	preprocessed = [p for p in preprocessed if p is not None]
 
-	video_samples, mixed_spectrograms, mixed_phases, source_spectrogarms, source_phases, source_waveforms, metadatas = zip(*preprocessed)
+	video_samples, mixed_spectrograms, mixed_phases, source_spectrogarms, source_phases, metadatas = zip(*preprocessed)
 
 	return (
 		np.stack(video_samples),
@@ -224,7 +222,7 @@ def preprocess_data(speech_entries, noise_file_paths, num_cpus):
 		np.stack(mixed_phases),
 		np.stack(source_spectrogarms),
 		np.stack(source_phases),
-		np.stack(source_waveforms),
+		# np.stack(source_waveforms),
 		metadatas
 	)
 
