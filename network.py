@@ -14,7 +14,7 @@ import numpy as np
 import random
 
 AUDIO_TO_VIDEO_RATIO = 4
-BATCH_SIZE = 4
+SPEECH_ENTRY_IN_SEC = 10
 
 class SpeechEnhancementNetwork(object):
 
@@ -48,10 +48,12 @@ class SpeechEnhancementNetwork(object):
         return vid, audio, delta
 
     @staticmethod
-    def __conv_block(prev_x, num_filters, kernel_size):
+    def __conv_block(prev_x, num_filters, kernel_size, pool=0):
         x = Conv1D(num_filters, kernel_size, padding='same')(prev_x)
         x = BatchNormalization()(x)
         x = LeakyReLU()(x)
+        if pool:
+            x = MaxPool1D(padding='same', strides=pool)(x)
         x = Dropout(0.5)(x)
 
         return x
@@ -67,6 +69,44 @@ class SpeechEnhancementNetwork(object):
         x = TimeDistributed(Dropout(0.5))(x)
 
         return x
+
+
+    def build_discriminator(self, in_shape):
+        input_spec = Input(in_shape)
+
+        x = self.__conv_block(input_spec, 80, 5, pool=2)
+        x = self.__conv_block(x, 80, 5, pool=2)
+        x = self.__conv_block(x, 160, 5, pool=2)
+        x = self.__conv_block(x, 160, 5)
+        x = self.__conv_block(x, 320, 5)
+        x = self.__conv_block(x, 320, 5)
+
+        x = TimeDistributed(Flatten())(x)
+        x = TimeDistributed(Dense(160))(x)
+        x = TimeDistributed(BatchNormalization())(x)
+        x = TimeDistributed(LeakyReLU())(x)
+        x = TimeDistributed(Dropout(0.5))(x)
+        x = TimeDistributed(Dense(1))(x)
+
+        x = TimeDistributed(Activation('sigmoid'))(x)
+        out = GlobalMaxPooling1D()(x)
+
+        if self.gpus > 1:
+            with tf.device('/cpu:0'):
+                model = Model(inputs=[input_spec], outputs=[out], name='Discriminator')
+                fit_model = multi_gpu_model(model, gpus=self.gpus)
+        else:
+            model = Model(inputs=[input_spec], outputs=[out], name='Discriminator')
+            fit_model = model
+
+        optimizer = optimizers.Adam(lr=5e-4)
+        fit_model.compile(loss='binary_crossentropy', optimizer=optimizer, metrics=['accuracy'])
+
+        print 'Discriminator'
+        model.summary(line_length=150)
+
+        self.__discriminator = model
+        self.__fit_discriminator = fit_model
 
 
     def build(self):
@@ -123,18 +163,23 @@ class SpeechEnhancementNetwork(object):
 
         out = Add()([delta, input_spec])
 
+        for layer in self.__discriminator.layers:
+            layer.trainable = False
+
+        disc_out = self.__discriminator(out)
+
         run_opts = tf.RunOptions(report_tensor_allocations_upon_oom=True)
 
         if self.gpus > 1:
             with tf.device('/cpu:0'):
-                model = Model(inputs=[input_vid, input_spec], outputs=[out], name='Net')
+                model = Model(inputs=[input_vid, input_spec], outputs=[out, disc_out], name='Net')
                 fit_model = multi_gpu_model(model, gpus=self.gpus)
         else:
-            model = Model(inputs=[input_vid, input_spec], outputs=[out], name='Net')
+            model = Model(inputs=[input_vid, input_spec], outputs=[out, disc_out], name='Net')
             fit_model = model
 
         optimizer = optimizers.Adam(lr=5e-4)
-        fit_model.compile(loss='mean_squared_error', optimizer=optimizer, options=run_opts)
+        fit_model.compile(loss=['mean_squared_error', 'binary_crossentropy'], loss_weights=[1.0, 0.2], optimizer=optimizer, options=run_opts)
 
         # print 'Net'
         # model.summary(line_length=150)
@@ -143,38 +188,72 @@ class SpeechEnhancementNetwork(object):
         self.__fit_model = fit_model
 
 
-    def train(self, train_speech_entries, train_noise_files, val_speech_entries, val_noise_files):
-        SaveModel = LambdaCallback(on_epoch_end=lambda epoch, logs: self.save_model())
-        lr_decay = ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=5, min_lr=0, verbose=1)
-        early_stopping = EarlyStopping(monitor='val_loss', min_delta=0.01, patience=50, verbose=1)
+    def train(self, train_speech_entries, train_noise_files, val_speech_entries, val_noise_files, batch_size):
+        dp = DataProcessor(25, 16000, slice_len_in_ms=1000, split_to_batch=True)
 
-        dp = DataProcessor(25, 16000, slice_len_in_ms=400, split_to_batch=True)
-        train_data_generator = DataGenerator(train_speech_entries,
+        print 'num gpus: ', self.gpus
+
+        print 'training discriminator'
+        model = 'discriminator'
+        train_disc_generator = DataGenerator(train_speech_entries,
                                              train_noise_files,
                                              dp,
                                              shuffle_noise=True,
-                                             batch_size=BATCH_SIZE,
-                                             num_gpu=self.gpus)
+                                             batch_size=batch_size,
+                                             num_gpu=self.gpus,
+                                             mode='discriminator')
 
-        val_data_generator = DataGenerator(val_speech_entries,
+        val_disc_generator = DataGenerator(val_speech_entries,
                                            val_noise_files,
                                            dp,
                                            shuffle_noise=True,
-                                           batch_size=BATCH_SIZE,
-                                           num_gpu=self.gpus)
+                                           batch_size=batch_size,
+                                           num_gpu=self.gpus,
+                                           mode='discriminator')
 
-        print 'num gpus: ', self.gpus
-        print 'starting fit...'
-        self.__fit_model.fit_generator(train_data_generator,
-                                       steps_per_epoch=4000,
-                                       epochs=1000,
-                                       callbacks=[SaveModel, lr_decay, early_stopping],
-                                       validation_data=val_data_generator,
-                                       validation_steps=100,
-                                       use_multiprocessing=True,
-                                       max_queue_size=20,
-                                       workers=self.gpus,
-                                       verbose=1)
+        SaveModel = LambdaCallback(on_epoch_end=lambda epoch, logs: self.save_model(model))
+        lr_decay = ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=5, min_lr=0, verbose=1)
+        early_stopping = EarlyStopping(monitor='val_loss', min_delta=0.01, patience=50, verbose=1)
+        self.__fit_discriminator.fit_generator(train_disc_generator,
+                                               epochs=1000,
+                                               callbacks=[SaveModel, lr_decay, early_stopping],
+                                               validation_data=val_disc_generator,
+                                               validation_steps=100,
+                                               use_multiprocessing=True,
+                                               max_queue_size=20,
+                                               workers=self.gpus,
+                                               verbose=1)
+
+        # print 'training generator'
+        # model = 'adversarial'
+        # train_adver_generator = DataGenerator(train_speech_entries,
+        #                                       train_noise_files,
+        #                                       dp,
+        #                                       shuffle_noise=True,
+        #                                       batch_size=BATCH_SIZE,
+        #                                       num_gpu=self.gpus,
+        #                                       mode='adversarial')
+        #
+        # val_adver_generator = DataGenerator(val_speech_entries,
+        #                                     val_noise_files,
+        #                                     dp,
+        #                                     shuffle_noise=True,
+        #                                     batch_size=BATCH_SIZE,
+        #                                     num_gpu=self.gpus,
+        #                                     mode='adversarial')
+        #
+        # SaveModel = LambdaCallback(on_epoch_end=lambda epoch, logs: self.save_model(model))
+        # lr_decay = ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=5, min_lr=0, verbose=1)
+        # early_stopping = EarlyStopping(monitor='val_loss', min_delta=0.01, patience=50, verbose=1)
+        # self.__fit_model.fit_generator(train_adver_generator,
+        #                                epochs=1000,
+        #                                callbacks=[SaveModel, lr_decay, early_stopping],
+        #                                validation_data=val_adver_generator,
+        #                                validation_steps=100,
+        #                                use_multiprocessing=True,
+        #                                max_queue_size=20,
+        #                                workers=self.gpus,
+        #                                verbose=1)
 
 
 
@@ -189,10 +268,13 @@ class SpeechEnhancementNetwork(object):
 
         return loss
 
-    def save_model(self):
+    def save_model(self, model='adversarial'):
         try:
-            self.__model.save(self.model_cache.model_path())
-            self.__model.save(self.model_cache.model_backup_path())
+            if model == 'adversarial':
+                self.__model.save(self.model_cache.model_path())
+                self.__model.save(self.model_cache.model_backup_path())
+            else:
+                self.__discriminator.save(self.model_cache.disc_path())
         except Exception as e:
             print(e)
 
@@ -206,7 +288,7 @@ class SpeechEnhancementNetwork(object):
 
 class DataGenerator(Sequence):
 
-    def __init__(self, speech_entries, noise_file_paths, data_processor, shuffle_noise=False, batch_size=4, num_gpu=1):
+    def __init__(self, speech_entries, noise_file_paths, data_processor, shuffle_noise=False, batch_size=4, num_gpu=1, mode='generator'):
         self.speech_entries = speech_entries
         self.noise_file_paths = noise_file_paths
         self.dp = data_processor
@@ -216,9 +298,12 @@ class DataGenerator(Sequence):
         self.noise_index = 0
         self.speech_index = 0
         self.cache = []
+        self.mode = mode
+
 
     def __len__(self):
-        return len(self.speech_entries)
+        # number of batches (of size BATCH_SIZE) in the dataset
+        return len(self.speech_entries) * SPEECH_ENTRY_IN_SEC * 1000 / self.dp.slice_len_in_ms / self.batch_size
 
     def __getitem__(self, index):
         if len(self.cache) != 0:
@@ -249,7 +334,16 @@ class DataGenerator(Sequence):
 
                 if vid.shape[0] == 0 or vid.shape[0] < self.num_gpu:
                     continue
-                self.cache.append(([vid, mix], [source]))
+
+                if self.mode == 'adversarial':
+                    self.cache.append(([vid, mix], [source, np.random.rand(vid.shape[0], 1) * 0.1 + 0.9]))
+                else:
+                    # self.cache.append(([source], [np.random.rand(source.shape[0], 1) * 0.1 + 0.9]))
+                    # self.cache.append(([mix], [np.random.rand(source.shape[0], 1) * 0.1]))
+
+                    self.cache.append(([source], [np.ones([mix.shape[0], 1])]))
+                    self.cache.append(([mix], [np.zeros([mix.shape[0], 1])]))
+
 
             tup = self.cache.pop()
             # print tup[0][0].shape, tup[0][1].shape, tup[1][0].shape
@@ -270,4 +364,5 @@ if __name__ == '__main__':
                                    num_gpus=1,
                                    model_cache_dir=None)
 
-    net.build()
+    # net.build()
+    net.build_discriminator((None, 80))

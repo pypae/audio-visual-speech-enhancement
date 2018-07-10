@@ -98,8 +98,9 @@ def train(args):
                                        num_layers=20,
                                        model_cache_dir=assets.get_model_cache_path(args.model),
                                        num_gpus=args.gpus)
-    network.build()
-    network.train(train_speech_entries, train_noise_file_paths, val_speech_entries, val_noise_file_paths)
+    network.build_discriminator((None, 80))
+    # network.build()
+    network.train(train_speech_entries, train_noise_file_paths, val_speech_entries, val_noise_file_paths, args.batch_size)
 
 
 def predict(args):
@@ -395,6 +396,7 @@ def main():
     train_gen_parser.add_argument('-tis', '--train_ignored_speakers', nargs='+', type=str)
     train_gen_parser.add_argument('-vis', '--val_ignored_speakers', nargs='+', type=str)
     train_gen_parser.add_argument('-ns', '--number_of_samples', type=int)
+    train_gen_parser.add_argument('-b', '--batch_size', type=int, default=4)
     train_gen_parser.add_argument('-g', '--gpus', type=int, default=1)
     train_gen_parser.set_defaults(func=train)
 
