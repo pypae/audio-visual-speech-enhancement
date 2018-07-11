@@ -107,6 +107,7 @@ class DataProcessor(object):
 			return video_samples, mixed_spectrograms, mixed_phases, source_spectrograms, source_phases
 
 		return video_sample, mixed_spectrogram, mixed_phase, source_spectrogram, source_phase, source_waveform, metadata
+		# return video_sample, source_spectrogram, source_phase, source_spectrogram, source_phase, source_waveform, metadata
 
 	def truncate_sample_to_same_length(self, video, mixed_spec, mixed_phase, source_spec, source_phase, source_waveform):
 		lenghts = [video.shape[0] * self.spec_bins_per_video_frame, mixed_spec.shape[-1], mixed_phase.shape[-1], source_spec.shape[-1],

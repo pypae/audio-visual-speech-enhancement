@@ -395,6 +395,7 @@ def main():
     train_gen_parser.add_argument('-tis', '--train_ignored_speakers', nargs='+', type=str)
     train_gen_parser.add_argument('-vis', '--val_ignored_speakers', nargs='+', type=str)
     train_gen_parser.add_argument('-ns', '--number_of_samples', type=int)
+    train_gen_parser.add_argument('-b', '--batch_size', type=int, default=4)
     train_gen_parser.add_argument('-g', '--gpus', type=int, default=1)
     train_gen_parser.set_defaults(func=train)
 
