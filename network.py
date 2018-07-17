@@ -50,7 +50,7 @@ class SpeechEnhancementNetwork(object):
     @staticmethod
     def __conv_block(prev_x, num_filters, kernel_size, pool=0):
         x = Conv1D(num_filters, kernel_size, padding='same', kernel_regularizer=regularizers.l2(), bias_regularizer=regularizers.l2())(prev_x)
-        x = BatchNormalization()(x)
+        # x = BatchNormalization()(x)
         x = LeakyReLU()(x)
         if pool:
             x = MaxPool1D(padding='same', strides=pool)(x)
@@ -61,7 +61,7 @@ class SpeechEnhancementNetwork(object):
     @staticmethod
     def __distributed_2D_conv_block(prev_x, pool, num_filters, kernel_size):
         x = TimeDistributed(Conv2D(num_filters, (kernel_size, kernel_size), padding='same'))(prev_x)
-        x = TimeDistributed(BatchNormalization())(x)
+        # x = TimeDistributed(BatchNormalization())(x)
         x = TimeDistributed(LeakyReLU())(x)
         if pool:
             x = TimeDistributed(MaxPool2D(strides=(pool, pool), padding='same'))(x)
@@ -84,14 +84,14 @@ class SpeechEnhancementNetwork(object):
         x = TimeDistributed(Flatten())(x)
 
         x = TimeDistributed(Dense(160, kernel_regularizer=regularizers.l2(), bias_regularizer=regularizers.l2()))(x)
-        x = TimeDistributed(BatchNormalization())(x)
+        # x = TimeDistributed(BatchNormalization())(x)
         x = TimeDistributed(LeakyReLU())(x)
         x = TimeDistributed(Dropout(0.5))(x)
 
         x = TimeDistributed(Dense(1))(x)
 
         x = TimeDistributed(Activation('sigmoid'))(x)
-        out = GlobalMaxPooling1D()(x)
+        out = GlobalAveragePooling1D()(x)
 
         if self.gpus > 1:
             with tf.device('/cpu:0'):
@@ -101,7 +101,7 @@ class SpeechEnhancementNetwork(object):
             model = Model(inputs=[input_spec], outputs=[out], name='Discriminator')
             fit_model = model
 
-        optimizer = optimizers.Adam(lr=5e-4)
+        optimizer = optimizers.Adam(lr=1e-4)
         fit_model.compile(loss='binary_crossentropy', optimizer=optimizer, metrics=['accuracy'])
 
         print 'Discriminator'
@@ -190,8 +190,36 @@ class SpeechEnhancementNetwork(object):
         self.__fit_model = fit_model
 
 
+    # def train_pre(self, source_specs, mix_specs):
+    #
+    #     dp = DataProcessor(25, 16000, slice_len_in_ms=1000, split_to_batch=True)
+    #     SaveModel = LambdaCallback(on_epoch_end=lambda epoch, logs: self.save_model('discriminator'))
+    #     lr_decay = ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=5, min_lr=0, verbose=1)
+    #     early_stopping = EarlyStopping(monitor='val_loss', min_delta=0.01, patience=250, verbose=1)
+    #
+    #     source_specs = np.swapaxes(source_specs[:,:,:-4], 1, 2)
+    #     source_specs = source_specs.reshape(-1, 100, 80)
+    #
+    #     mix_specs = np.swapaxes(mix_specs[:,:,:-4], 1, 2)
+    #     mix_specs = mix_specs.reshape(-1, 100, 80)
+    #
+    #     train_specs = np.concatenate((source_specs, mix_specs), axis=0)
+    #     labels = np.ones((train_specs.shape[0], 1))
+    #     labels[source_specs.shape[0]:] = 0.0
+    #
+    #     print 'training:'
+    #     self.__fit_discriminator.fit(x=train_specs,
+    #                                  y=labels,
+    #                                  batch_size=8,
+    #                                  epochs=100,
+    #                                  verbose=1,
+    #                                  callbacks=[SaveModel, lr_decay, early_stopping],
+    #                                  validation_split=0.1,
+    #                                  )
+
+
     def train(self, train_speech_entries, train_noise_files, val_speech_entries, val_noise_files, batch_size):
-        dp = DataProcessor(25, 16000, slice_len_in_ms=1000, split_to_batch=True)
+        dp = DataProcessor(25, 16000, slice_len_in_ms=1000, split_to_batch=False)
 
         print 'num gpus: ', self.gpus
 
@@ -215,15 +243,15 @@ class SpeechEnhancementNetwork(object):
 
         SaveModel = LambdaCallback(on_epoch_end=lambda epoch, logs: self.save_model(model))
         lr_decay = ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=5, min_lr=0, verbose=1)
-        early_stopping = EarlyStopping(monitor='val_loss', min_delta=0.01, patience=250, verbose=1)
+        early_stopping = EarlyStopping(monitor='val_loss', min_delta=0.01, patience=20, verbose=1)
         self.__fit_discriminator.fit_generator(train_disc_generator,
                                                epochs=1000,
                                                callbacks=[SaveModel, lr_decay, early_stopping],
                                                validation_data=val_disc_generator,
                                                validation_steps=100,
                                                use_multiprocessing=True,
-                                               max_queue_size=20,
-                                               workers=self.gpus,
+                                               max_queue_size=200,
+                                               workers=4,
                                                verbose=1)
 
         # print 'training generator'
@@ -258,7 +286,6 @@ class SpeechEnhancementNetwork(object):
         #                                verbose=1)
 
 
-
     def predict(self, mixed_spectrograms, video_samples):
         speech_spectrograms = self.__model.predict([video_samples, mixed_spectrograms], batch_size=1)
 
@@ -287,74 +314,125 @@ class SpeechEnhancementNetwork(object):
 
         return SpeechEnhancementNetwork(model=model)
 
-
 class DataGenerator(Sequence):
 
-    def __init__(self, speech_entries, noise_file_paths, data_processor, shuffle_noise=False, batch_size=4, num_gpu=1, mode='generator'):
+    def __init__(self, speech_entries, noise_file_paths, data_processor, shuffle_noise=False, batch_size=4, num_gpu=1, mode='generator',
+                 verbose=0):
         self.speech_entries = speech_entries
         self.noise_file_paths = noise_file_paths
         self.dp = data_processor
         self.shuffle_noise = shuffle_noise
-        self.batch_size = min(batch_size, SPEECH_ENTRY_IN_SEC * 1000 / self.dp.slice_len_in_ms) # todo: revert to batch_size after improving __get
+        self.batch_size = batch_size
         self.num_gpu = num_gpu
         self.noise_index = 0
         self.speech_index = 0
         self.cache = []
         self.mode = mode
-
+        self.verbose = verbose
 
     def __len__(self):
         # number of batches (of size BATCH_SIZE) in the dataset
-        return len(self.speech_entries) * SPEECH_ENTRY_IN_SEC * 1000 / self.dp.slice_len_in_ms / (self.batch_size * self.num_gpu)
+        return len(self.speech_entries) * 2
 
     def __getitem__(self, index):
-        if len(self.cache) != 0:
-            tup = self.cache.pop()
-            # print 'Cached'
-            # print tup[0][0].shape, tup[0][1].shape, tup[1][0].shape
-            return tup
-
-        if self.speech_index >= len(self.speech_entries):
-            self.speech_index = 0
-        if self.noise_index >= len(self.noise_file_paths):
-            self.noise_index = 0
-            if self.shuffle_noise:
-                random.shuffle(self.noise_file_paths)
-
         try:
-            video_samples, mixed_spectrograms, mixed_phases, source_spectrograms, source_phases = \
-                self.dp.preprocess_sample(self.speech_entries[index], self.noise_file_paths[self.noise_index])
+            source_spectrogram, mixed_spectrogram = \
+                self.dp.preprocess_sample2(self.speech_entries[index % len(self.speech_entries)], random.choice(self.noise_file_paths))
 
-            self.noise_index += 1
-            self.speech_index += 1
+            clean = random.random() < 0.65
 
-            raw_batch_size = video_samples.shape[0]
-            for j in range(0, raw_batch_size, self.batch_size * self.num_gpu):
-                vid = video_samples[j : j + (self.batch_size * self.num_gpu)]
-                mix = mixed_spectrograms[j : j + (self.batch_size * self.num_gpu)]
-                source = source_spectrograms[j : j + (self.batch_size * self.num_gpu)]
+            if clean:
+                specs = source_spectrogram.T
+            else:
+                specs = mixed_spectrogram.T
 
-                if vid.shape[0] == 0 or vid.shape[0] < self.num_gpu:
-                    continue
+            specs = specs[:-(specs.shape[0] % self.dp.spec_frames_per_slice)]
+            channels = specs.shape[1]
+            specs = specs.reshape(-1, self.dp.spec_frames_per_slice, channels)
 
-                if self.mode == 'adversarial':
-                    self.cache.append(([vid, mix], [source, np.random.rand(vid.shape[0], 1) * 0.1 + 0.9]))
-                else:
-                    # self.cache.append(([source], [np.random.rand(source.shape[0], 1) * 0.1 + 0.9]))
-                    # self.cache.append(([mix], [np.random.rand(source.shape[0], 1) * 0.1]))
+            if clean:
+                labels = np.ones([specs.shape[0], 1])
+            else:
+                labels = np.zeros([specs.shape[0], 1])
 
-                    self.cache.append(([source], [np.ones([mix.shape[0], 1])]))
-                    self.cache.append(([mix], [np.zeros([mix.shape[0], 1])]))
+            return specs, labels
 
-
-            tup = self.cache.pop()
-            # print tup[0][0].shape, tup[0][1].shape, tup[1][0].shape
-            return tup
         except Exception as e:
             pass
 
     def on_epoch_end(self):
         pass
+
+
+
+# class DataGenerator(Sequence):
+#
+#     def __init__(self, speech_entries, noise_file_paths, data_processor, shuffle_noise=False, batch_size=4, num_gpu=1, mode='generator', verbose=0):
+#         self.speech_entries = speech_entries
+#         self.noise_file_paths = noise_file_paths
+#         self.dp = data_processor
+#         self.shuffle_noise = shuffle_noise
+#         self.batch_size = min(batch_size, SPEECH_ENTRY_IN_SEC * 1000 / self.dp.slice_len_in_ms) # todo: revert to batch_size after improving __get
+#         self.num_gpu = num_gpu
+#         self.noise_index = 0
+#         self.speech_index = 0
+#         self.cache = []
+#         self.mode = mode
+#         self.verbose = verbose
+#
+#     def __len__(self):
+#         # number of batches (of size BATCH_SIZE) in the dataset
+#         return len(self.speech_entries) * SPEECH_ENTRY_IN_SEC * 1000 / self.dp.slice_len_in_ms / (self.batch_size * self.num_gpu) * 2
+#
+#     def __getitem__(self, index):
+#         if self.verbose:
+#             print 'index', index
+#             print 'speech', self.speech_index
+#         if len(self.cache) != 0:
+#             tup = self.cache.pop()
+#             if self.verbose:
+#                 print tup[1][0].shape, tup[1][0][0]
+#             return tup
+#
+#         if self.speech_index >= len(self.speech_entries):
+#             self.speech_index = 0
+#         if self.noise_index >= len(self.noise_file_paths):
+#             self.noise_index = 0
+#             if self.shuffle_noise:
+#                 random.shuffle(self.noise_file_paths)
+#
+#         try:
+#             video_samples, mixed_spectrograms, mixed_phases, source_spectrograms, source_phases = \
+#                 self.dp.preprocess_sample(self.speech_entries[self.speech_index], self.noise_file_paths[self.noise_index])
+#
+#             self.noise_index += 1
+#             self.speech_index += 1
+#
+#             raw_batch_size = video_samples.shape[0]
+#             for j in range(0, raw_batch_size, self.batch_size * self.num_gpu):
+#                 vid = video_samples[j : j + (self.batch_size * self.num_gpu)]
+#                 mix = mixed_spectrograms[j : j + (self.batch_size * self.num_gpu)]
+#                 source = source_spectrograms[j : j + (self.batch_size * self.num_gpu)]
+#
+#                 if vid.shape[0] == 0 or vid.shape[0] < self.num_gpu:
+#                     continue
+#
+#                 if self.mode == 'adversarial':
+#                     self.cache.append(([vid, mix], [source, np.random.rand(vid.shape[0], 1) * 0.1 + 0.9]))
+#                 else:
+#                     self.cache.append(([source], [np.ones([mix.shape[0], 1])]))
+#                     self.cache.append(([mix], [np.zeros([mix.shape[0], 1])]))
+#
+#
+#             tup = self.cache.pop()
+#             if self.verbose:
+#                 print tup[1][0].shape, tup[1][0][0]
+#             return tup
+#         except Exception as e:
+#             pass
+#
+#     def on_epoch_end(self):
+#         pass
 
 
 if __name__ == '__main__':

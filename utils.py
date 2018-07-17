@@ -109,6 +109,16 @@ class DataProcessor(object):
 
         return video_sample, mixed_spectrogram, mixed_phase, source_spectrogram, source_phase, source_waveform, metadata
 
+    def preprocess_sample2(self, speech_entry, noise_file_path):
+
+        mixed_signal = mix_source_noise(speech_entry.audio_path, noise_file_path)
+        source_signal = AudioSignal.from_wav_file(speech_entry.audio_path)
+
+        mixed_spectrogram, mixed_phase = self.get_mag_phase(mixed_signal.get_data())
+        source_spectrogram, source_phase = self.preprocess_source(source_signal)
+
+        return source_spectrogram, mixed_spectrogram
+
     def truncate_sample_to_same_length(self, video, mixed_spec, mixed_phase, source_spec, source_phase, source_waveform):
         lenghts = [video.shape[0] * self.spec_bins_per_video_frame, mixed_spec.shape[-1], mixed_phase.shape[-1], source_spec.shape[-1],
                    source_phase.shape[-1]]

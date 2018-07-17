@@ -80,6 +80,11 @@ def train(args):
         val_dataset_path, val_speaker_ids, val_noise_dirs, max_files=val_number_of_samples, shuffle=True, vid_type=args.vid_type
     )
 
+    # 'loading obama-libri-lips-train'
+    # preprocessed_path = os.path.join(BASE_FOLDER, 'cache/preprocessed/obama-libri-lips-train/data.npz')
+    # vid, mix_specs, source_specs, source_phases, mixed_phases, source_waveforms = load_preprocessed_samples(preprocessed_path,
+    #                                                                                                   max_samples=None)
+
     print 'train dataset: ', train_dataset_path
     print 'num train speakers: ', len(train_speaker_ids)
     print 'num train clean files: ', len(train_speech_entries)
@@ -101,6 +106,7 @@ def train(args):
     network.build_discriminator((None, 80))
     # network.build()
     network.train(train_speech_entries, train_noise_file_paths, val_speech_entries, val_noise_file_paths, args.batch_size)
+    # network.train_pre(source_specs, mix_specs)
 
 
 def predict(args):
