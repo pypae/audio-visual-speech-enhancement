@@ -9,6 +9,3 @@ train_set = os.path.join(base_path, 'cache/preprocessed/obama-libri-lips-train/d
 
 model = load_model(model_path)
 
-mixed_test =
-
-

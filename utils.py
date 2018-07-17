@@ -90,21 +90,15 @@ class DataProcessor(object):
 				video_sample, mixed_spectrogram, mixed_phase, source_spectrogram, source_phase, source_waveform)
 
 		if self.split_to_batch:
-			video_slices_list = split_to_equal_length(frames, axis=0, slice_len=self.vid_frames_per_slice)
-			mixed_specs_list = split_to_equal_length(mixed_spectrogram.T, axis=0, slice_len=self.spec_frames_per_slice)
-			mixed_phases_list = split_to_equal_length(mixed_phase.T, axis=0, slice_len=self.spec_frames_per_slice)
-			source_specs_list = split_to_equal_length(source_spectrogram.T, axis=0, slice_len=self.spec_frames_per_slice)
-			source_phases_list = split_to_equal_length(source_phase.T, axis=0, slice_len=self.spec_frames_per_slice)
+			video_sample = video_sample[:-(video_sample.shape[0] % self.vid_frames_per_slice)]
+			mixed_spectrogram = mixed_spectrogram.T[:-(mixed_spectrogram.T.shape[0] % self.spec_frames_per_slice)]
+			source_spectrogram = source_spectrogram.T[:-(source_spectrogram.T.shape[0] % self.spec_frames_per_slice)]
 
-			min_len = min(len(video_slices_list), len(mixed_specs_list), len(source_specs_list))
+			video_samples = video_sample.reshape(-1, self.vid_frames_per_slice, video_sample.shape[-2], video_sample.shape[-1])
+			mixed_spectrograms = mixed_spectrogram.reshape(-1, self.spec_frames_per_slice, mixed_spectrogram.shape[-1])
+			source_spectrograms = source_spectrogram.reshape(-1, self.spec_frames_per_slice, source_spectrogram.shape[-1])
 
-			video_samples = np.stack(video_slices_list[:min_len])
-			mixed_spectrograms = np.stack(mixed_specs_list[:min_len])
-			mixed_phases = np.stack(mixed_phases_list[:min_len])
-			source_spectrograms = np.stack(source_specs_list[:min_len])
-			source_phases = np.stack(source_phases_list[:min_len])
-
-			return video_samples, mixed_spectrograms, mixed_phases, source_spectrograms, source_phases
+			return video_samples, mixed_spectrograms, source_spectrograms
 
 		return video_sample, mixed_spectrogram, mixed_phase, source_spectrogram, source_phase, source_waveform, metadata
 		# return video_sample, source_spectrogram, source_phase, source_spectrogram, source_phase, source_waveform, metadata

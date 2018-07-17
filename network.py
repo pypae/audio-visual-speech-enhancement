@@ -50,7 +50,7 @@ class SpeechEnhancementNetwork(object):
     @staticmethod
     def __conv_block(prev_x, num_filters, kernel_size):
         x = Conv1D(num_filters, kernel_size, padding='same')(prev_x)
-        x = BatchNormalization()(x)
+        # x = BatchNormalization()(x)
         x = LeakyReLU()(x)
         x = Dropout(0.5)(x)
 
@@ -59,7 +59,7 @@ class SpeechEnhancementNetwork(object):
     @staticmethod
     def __distributed_2D_conv_block(prev_x, pool, num_filters, kernel_size):
         x = TimeDistributed(Conv2D(num_filters, (kernel_size, kernel_size), padding='same'))(prev_x)
-        x = TimeDistributed(BatchNormalization())(x)
+        # x = TimeDistributed(BatchNormalization())(x)
         x = TimeDistributed(LeakyReLU())(x)
         if pool:
             x = TimeDistributed(MaxPool2D(strides=(pool, pool), padding='same'))(x)
@@ -86,15 +86,15 @@ class SpeechEnhancementNetwork(object):
         vid = TimeDistributed(Flatten())(vid)
 
         vid = Conv1D(80, 5, padding='same')(vid)
-        vid = TimeDistributed(BatchNormalization())(vid)
+        # vid = TimeDistributed(BatchNormalization())(vid)
         vid = TimeDistributed(LeakyReLU())(vid)
 
         vid = Conv1D(80, 5, padding='same')(vid)
-        vid = TimeDistributed(BatchNormalization())(vid)
+        # vid = TimeDistributed(BatchNormalization())(vid)
         vid = TimeDistributed(LeakyReLU())(vid)
 
         vid = Conv1D(80, 5, padding='same')(vid)
-        vid = TimeDistributed(BatchNormalization())(vid)
+        # vid = TimeDistributed(BatchNormalization())(vid)
         vid = TimeDistributed(LeakyReLU())(vid)
 
         vid = Conv1D(80, 5, padding='same')(vid)
@@ -146,9 +146,9 @@ class SpeechEnhancementNetwork(object):
     def train(self, train_speech_entries, train_noise_files, val_speech_entries, val_noise_files):
         SaveModel = LambdaCallback(on_epoch_end=lambda epoch, logs: self.save_model())
         lr_decay = ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=5, min_lr=0, verbose=1)
-        early_stopping = EarlyStopping(monitor='val_loss', min_delta=0.01, patience=50, verbose=1)
+        early_stopping = EarlyStopping(monitor='val_loss', min_delta=0.01, patience=20, verbose=1)
 
-        dp = DataProcessor(25, 16000, slice_len_in_ms=400, split_to_batch=True)
+        dp = DataProcessor(25, 16000, slice_len_in_ms=1000, split_to_batch=True)
         train_data_generator = DataGenerator(train_speech_entries,
                                              train_noise_files,
                                              dp,
@@ -166,14 +166,13 @@ class SpeechEnhancementNetwork(object):
         print 'num gpus: ', self.gpus
         print 'starting fit...'
         self.__fit_model.fit_generator(train_data_generator,
-                                       steps_per_epoch=4000,
                                        epochs=1000,
                                        callbacks=[SaveModel, lr_decay, early_stopping],
                                        validation_data=val_data_generator,
                                        validation_steps=100,
                                        use_multiprocessing=True,
-                                       max_queue_size=20,
-                                       workers=self.gpus,
+                                       max_queue_size=50,
+                                       workers=4,
                                        verbose=1)
 
 
@@ -215,46 +214,17 @@ class DataGenerator(Sequence):
         self.num_gpu = num_gpu
         self.noise_index = 0
         self.speech_index = 0
-        self.cache = []
 
     def __len__(self):
         return len(self.speech_entries)
 
     def __getitem__(self, index):
-        if len(self.cache) != 0:
-            tup = self.cache.pop()
-            # print 'Cached'
-            # print tup[0][0].shape, tup[0][1].shape, tup[1][0].shape
-            return tup
-
-        if self.speech_index >= len(self.speech_entries):
-            self.speech_index = 0
-        if self.noise_index >= len(self.noise_file_paths):
-            self.noise_index = 0
-            if self.shuffle_noise:
-                random.shuffle(self.noise_file_paths)
-
         try:
-            video_samples, mixed_spectrograms, mixed_phases, source_spectrograms, source_phases = \
-                self.dp.preprocess_sample(self.speech_entries[index], self.noise_file_paths[self.noise_index])
+            video_samples, mixed_spectrograms, source_spectrograms= self.dp.preprocess_sample(self.speech_entries[index], random.choice(self.noise_file_paths))
 
-            self.noise_index += 1
-            self.speech_index += 1
-
-            raw_batch_size = video_samples.shape[0]
-            for j in range(0, raw_batch_size, self.batch_size * self.num_gpu):
-                vid = video_samples[j : j + (self.batch_size * self.num_gpu)]
-                mix = mixed_spectrograms[j : j + (self.batch_size * self.num_gpu)]
-                source = source_spectrograms[j : j + (self.batch_size * self.num_gpu)]
-
-                if vid.shape[0] == 0 or vid.shape[0] < self.num_gpu:
-                    continue
-                self.cache.append(([vid, mix], [source]))
-
-            tup = self.cache.pop()
-            # print tup[0][0].shape, tup[0][1].shape, tup[1][0].shape
-            return tup
+            return [video_samples, mixed_spectrograms], [source_spectrograms]
         except Exception as e:
+            print 'failed processing'
             pass
 
     def on_epoch_end(self):
