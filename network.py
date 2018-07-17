@@ -339,7 +339,7 @@ class DataGenerator(Sequence):
             source_spectrogram, mixed_spectrogram = \
                 self.dp.preprocess_sample2(self.speech_entries[index % len(self.speech_entries)], random.choice(self.noise_file_paths))
 
-            clean = random.random() < 0.65
+            clean = random.random() < 0.5
 
             if clean:
                 specs = source_spectrogram.T
