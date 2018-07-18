@@ -243,7 +243,7 @@ class SpeechEnhancementNetwork(object):
 
         SaveModel = LambdaCallback(on_epoch_end=lambda epoch, logs: self.save_model(model))
         lr_decay = ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=5, min_lr=0, verbose=1)
-        early_stopping = EarlyStopping(monitor='val_loss', min_delta=0.01, patience=20, verbose=1)
+        early_stopping = EarlyStopping(monitor='val_loss', min_delta=0.001, patience=30, verbose=1)
         self.__fit_discriminator.fit_generator(train_disc_generator,
                                                epochs=1000,
                                                callbacks=[SaveModel, lr_decay, early_stopping],
