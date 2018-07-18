@@ -103,10 +103,9 @@ def train(args):
                                        num_layers=20,
                                        model_cache_dir=assets.get_model_cache_path(args.model),
                                        num_gpus=args.gpus)
-    network.build_discriminator((None, 80))
-    # network.build()
+    # network.build_discriminator((None, 80))
+    network.build()
     network.train(train_speech_entries, train_noise_file_paths, val_speech_entries, val_noise_file_paths, args.batch_size)
-    # network.train_pre(source_specs, mix_specs)
 
 
 def predict(args):
