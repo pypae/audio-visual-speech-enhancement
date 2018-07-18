@@ -1,6 +1,6 @@
 
 
-from tensorflow.python.keras import optimizers
+from tensorflow.python.keras import optimizers, losses
 from tensorflow.python.keras.layers import *
 from tensorflow.python.keras.callbacks import *
 from tensorflow.python.keras.models import Model, load_model
@@ -14,7 +14,6 @@ import numpy as np
 import random
 
 AUDIO_TO_VIDEO_RATIO = 4
-BATCH_SIZE = 4
 
 class SpeechEnhancementNetwork(object):
 
@@ -50,8 +49,8 @@ class SpeechEnhancementNetwork(object):
     @staticmethod
     def __conv_block(prev_x, num_filters, kernel_size):
         x = Conv1D(num_filters, kernel_size, padding='same')(prev_x)
-        # x = BatchNormalization()(x)
-        x = LeakyReLU()(x)
+        x = BatchNormalization()(x)
+        x = LeakyReLU()(x4)
         x = Dropout(0.5)(x)
 
         return x
@@ -59,7 +58,7 @@ class SpeechEnhancementNetwork(object):
     @staticmethod
     def __distributed_2D_conv_block(prev_x, pool, num_filters, kernel_size):
         x = TimeDistributed(Conv2D(num_filters, (kernel_size, kernel_size), padding='same'))(prev_x)
-        # x = TimeDistributed(BatchNormalization())(x)
+        x = TimeDistributed(BatchNormalization())(x)
         x = TimeDistributed(LeakyReLU())(x)
         if pool:
             x = TimeDistributed(MaxPool2D(strides=(pool, pool), padding='same'))(x)
@@ -86,15 +85,15 @@ class SpeechEnhancementNetwork(object):
         vid = TimeDistributed(Flatten())(vid)
 
         vid = Conv1D(80, 5, padding='same')(vid)
-        # vid = TimeDistributed(BatchNormalization())(vid)
+        vid = TimeDistributed(BatchNormalization())(vid)
         vid = TimeDistributed(LeakyReLU())(vid)
 
         vid = Conv1D(80, 5, padding='same')(vid)
-        # vid = TimeDistributed(BatchNormalization())(vid)
+        vid = TimeDistributed(BatchNormalization())(vid)
         vid = TimeDistributed(LeakyReLU())(vid)
 
         vid = Conv1D(80, 5, padding='same')(vid)
-        # vid = TimeDistributed(BatchNormalization())(vid)
+        vid = TimeDistributed(BatchNormalization())(vid)
         vid = TimeDistributed(LeakyReLU())(vid)
 
         vid = Conv1D(80, 5, padding='same')(vid)
@@ -118,7 +117,11 @@ class SpeechEnhancementNetwork(object):
         x = Concatenate()([tiled_vid, audio, delta, input_spec])
         # delta = self.__conv_block(x, 80, 5)
         delta = TimeDistributed(Dense(256))(x)
+        delta = TimeDistributed(LeakyReLU())(delta)
+
         delta = TimeDistributed(Dense(256))(delta)
+        delta = TimeDistributed(LeakyReLU())(delta)
+
         delta = TimeDistributed(Dense(80))(delta)
 
         out = Add()([delta, input_spec])
@@ -143,7 +146,7 @@ class SpeechEnhancementNetwork(object):
         self.__fit_model = fit_model
 
 
-    def train(self, train_speech_entries, train_noise_files, val_speech_entries, val_noise_files):
+    def train(self, train_speech_entries, train_noise_files, val_speech_entries, val_noise_files, batch_size):
         SaveModel = LambdaCallback(on_epoch_end=lambda epoch, logs: self.save_model())
         lr_decay = ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=5, min_lr=0, verbose=1)
         early_stopping = EarlyStopping(monitor='val_loss', min_delta=0.01, patience=20, verbose=1)
@@ -153,14 +156,14 @@ class SpeechEnhancementNetwork(object):
                                              train_noise_files,
                                              dp,
                                              shuffle_noise=True,
-                                             batch_size=BATCH_SIZE,
+                                             batch_size=batch_size,
                                              num_gpu=self.gpus)
 
         val_data_generator = DataGenerator(val_speech_entries,
                                            val_noise_files,
                                            dp,
                                            shuffle_noise=True,
-                                           batch_size=BATCH_SIZE,
+                                           batch_size=batch_size,
                                            num_gpu=self.gpus)
 
         print 'num gpus: ', self.gpus
@@ -216,14 +219,16 @@ class DataGenerator(Sequence):
         self.speech_index = 0
 
     def __len__(self):
-        return len(self.speech_entries)
+        return int(len(self.speech_entries) * 10000 / self.dp.slice_len_in_ms / self.batch_size / self.num_gpu)
 
     def __getitem__(self, index):
         try:
-            video_samples, mixed_spectrograms, source_spectrograms= self.dp.preprocess_sample(self.speech_entries[index], random.choice(self.noise_file_paths))
-
-            return [video_samples, mixed_spectrograms], [source_spectrograms]
+            video_samples, mixed_spectrograms, source_spectrograms = self.dp.preprocess_sample(self.speech_entries[index % len(self.speech_entries)],
+                                                                                               random.choice(self.noise_file_paths))
+            ind = random.sample(range(video_samples.shape[0]), self.batch_size * self.num_gpu)
+            return [video_samples[ind], mixed_spectrograms[ind]], [source_spectrograms[ind]]
         except Exception as e:
+            print e
             print 'failed processing'
             pass
 
