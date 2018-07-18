@@ -50,7 +50,7 @@ class SpeechEnhancementNetwork(object):
     def __conv_block(prev_x, num_filters, kernel_size):
         x = Conv1D(num_filters, kernel_size, padding='same')(prev_x)
         x = BatchNormalization()(x)
-        x = LeakyReLU()(x4)
+        x = LeakyReLU()(x)
         x = Dropout(0.5)(x)
 
         return x
