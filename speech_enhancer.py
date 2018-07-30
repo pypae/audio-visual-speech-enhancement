@@ -58,7 +58,7 @@ def train(args):
 
     print 'listing train data...'
     train_speech_entries, train_noise_file_paths = list_data(
-        train_dataset_path, train_speaker_ids, args.noise_dirs, max_files=args.number_of_samples, shuffle=True, vid_type=args.vid_type
+        train_dataset_path, train_speaker_ids, args.noise_dirs, max_files=args.number_of_samples, shuffle=False, vid_type=args.vid_type
     )
 
     print 'listing val speakers...'
@@ -100,11 +100,10 @@ def train(args):
                                        vid_shape=(None, 128, 128),
                                        num_filters=160,
                                        kernel_size=5,
-                                       num_layers=20,
+                                       num_layers=2,
                                        model_cache_dir=assets.get_model_cache_path(args.model),
                                        num_gpus=args.gpus)
-    # network.build_discriminator((None, 80))
-    network.build()
+    network.build_discriminator((None, 80))
     network.train(train_speech_entries, train_noise_file_paths, val_speech_entries, val_noise_file_paths, args.batch_size)
 
 
