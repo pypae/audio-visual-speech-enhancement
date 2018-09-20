@@ -68,10 +68,14 @@ speech_enhancer.py --base_dir <output-dir-path> predict
 ## Citing
 If you find this project useful for your research, please cite
 ```
-@article{gabbay2017visual,
-  title={Visual Speech Enhancement},
-  author={Gabbay, Aviv and Shamir, Asaph and Peleg, Shmuel},
-  journal={arXiv preprint arXiv:1711.08789},
-  year={2017}
+@inproceedings{gabbay2018visual,
+  author    = {Aviv Gabbay and
+               Asaph Shamir and
+               Shmuel Peleg},
+  title     = {Visual Speech Enhancement},
+  booktitle = {Interspeech},
+  pages     = {1170--1174},
+  publisher = {{ISCA}},
+  year      = {2018}
 }
 ```
